@@ -1,0 +1,234 @@
+/* Quant Trading Dashboard Styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    padding: 20px;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+header {
+    text-align: center;
+    color: white;
+    margin-bottom: 30px;
+}
+
+header h1 {
+    font-size: 2.5em;
+    margin-bottom: 10px;
+}
+
+.subtitle {
+    font-size: 1.2em;
+    opacity: 0.9;
+}
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.card {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.card h2 {
+    color: #333;
+    margin-bottom: 15px;
+    font-size: 1.3em;
+    border-bottom: 2px solid #667eea;
+    padding-bottom: 10px;
+}
+
+.metric {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.metric:last-child {
+    border-bottom: none;
+}
+
+.label {
+    color: #666;
+    font-weight: 500;
+}
+
+.value {
+    font-weight: bold;
+    font-size: 1.1em;
+}
+
+.value.positive {
+    color: #10b981;
+}
+
+.value.negative {
+    color: #ef4444;
+}
+
+.value.inactive {
+    color: #6b7280;
+}
+
+.positions-table, .signals-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+.positions-table th, .signals-table th {
+    background: #f8f9fa;
+    padding: 10px;
+    text-align: left;
+    font-weight: 600;
+    color: #333;
+}
+
+.positions-table td, .signals-table td {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+}
+
+.buy {
+    color: #10b981;
+    font-weight: bold;
+}
+
+.sell {
+    color: #ef4444;
+    font-weight: bold;
+}
+
+.filled {
+    color: #10b981;
+    font-weight: bold;
+}
+
+.pending {
+    color: #f59e0b;
+    font-weight: bold;
+}
+
+.strategy-item {
+    padding: 15px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.strategy-item:last-child {
+    border-bottom: none;
+}
+
+.strategy-name {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 5px;
+}
+
+.strategy-metrics {
+    display: flex;
+    gap: 15px;
+}
+
+.sharpe, .win-rate {
+    font-size: 0.9em;
+    color: #666;
+}
+
+.regime-display {
+    text-align: center;
+    padding: 20px 0;
+}
+
+.regime-label {
+    display: block;
+    color: #666;
+    margin-bottom: 10px;
+}
+
+.regime-value {
+    font-size: 2em;
+    font-weight: bold;
+    padding: 10px 20px;
+    border-radius: 5px;
+}
+
+.regime-value.bull {
+    background: #d1fae5;
+    color: #10b981;
+}
+
+.regime-value.bear {
+    background: #fee2e2;
+    color: #ef4444;
+}
+
+.regime-value.sideways {
+    background: #fef3c7;
+    color: #f59e0b;
+}
+
+.regime-value.high-vol {
+    background: #e0e7ff;
+    color: #6366f1;
+}
+
+.regime-probabilities {
+    margin-top: 20px;
+}
+
+.prob-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.prob-item span:first-child {
+    width: 120px;
+    font-size: 0.9em;
+    color: #666;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 8px;
+    background: #e5e7eb;
+    border-radius: 4px;
+    margin: 0 10px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+}
+
+.prob-item span:last-child {
+    width: 50px;
+    text-align: right;
+    font-weight: bold;
+    color: #333;
+}
+
+.full-width {
+    grid-column: 1 / -1;
+}

@@ -1,0 +1,2 @@
+"""Participant thesis: retail momentum."""
+
