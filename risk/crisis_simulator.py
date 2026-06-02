@@ -31,6 +31,7 @@ class CrisisScenario:
     volatility_spike: float  # Volatility multiplier
     volume_spike: float  # Volume multiplier
     duration_days: int
+    vix_trigger: float  # VIX level that triggers override (0 = no trigger)
 
 
 @dataclass
@@ -46,6 +47,8 @@ class StressTestResult:
     sharpe: float
     passed: bool
     reason: str
+    override_applied: bool = False
+    override_multiplier: float = 1.0
 
 
 class CrisisSimulator:
@@ -76,7 +79,8 @@ class CrisisSimulator:
                 initial_drop=-0.30,
                 volatility_spike=3.0,
                 volume_spike=2.0,
-                duration_days=30
+                duration_days=30,
+                vix_trigger=35.0
             ),
             CrisisScenario(
                 name="Adani_2023",
@@ -86,7 +90,8 @@ class CrisisSimulator:
                 initial_drop=-0.25,
                 volatility_spike=2.5,
                 volume_spike=3.0,
-                duration_days=15
+                duration_days=15,
+                vix_trigger=30.0
             ),
             CrisisScenario(
                 name="Russia_Ukraine_2022",
@@ -96,7 +101,8 @@ class CrisisSimulator:
                 initial_drop=-0.05,
                 volatility_spike=2.0,
                 volume_spike=1.5,
-                duration_days=20
+                duration_days=20,
+                vix_trigger=28.0
             ),
             CrisisScenario(
                 name="Flash_Crash_2015",
@@ -106,7 +112,8 @@ class CrisisSimulator:
                 initial_drop=-0.05,
                 volatility_spike=5.0,
                 volume_spike=4.0,
-                duration_days=1
+                duration_days=1,
+                vix_trigger=25.0
             ),
             CrisisScenario(
                 name="Rate_hike_2022",
@@ -116,7 +123,8 @@ class CrisisSimulator:
                 initial_drop=-0.10,
                 volatility_spike=1.5,
                 volume_spike=1.2,
-                duration_days=120
+                duration_days=120,
+                vix_trigger=20.0
             ),
             CrisisScenario(
                 name="Liquidity_crisis",
@@ -126,7 +134,8 @@ class CrisisSimulator:
                 initial_drop=-0.02,
                 volatility_spike=1.2,
                 volume_spike=0.1,
-                duration_days=1
+                duration_days=1,
+                vix_trigger=0.0
             )
         ]
     
