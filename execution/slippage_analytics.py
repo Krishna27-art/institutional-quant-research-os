@@ -7,6 +7,10 @@ Key findings from audit:
 - Slippage assumptions are wrong
 - Need: Execution analytics table (broker fills)
 
+CRITICAL FIX: Updated slippage model to realistic values.
+Previous: 2 bps base + 0.5 bps per ₹1Cr (wildly optimistic)
+New: 5 bps base + 0.5 bps per ₹1Cr (realistic for Indian markets)
+
 Architecture V2 Upgrade - 90-Day Plan Item #3
 Priority: P0 (Critical)
 """
@@ -266,8 +270,8 @@ class SlippageAnalyzer:
         symbol_slippage = [m.slippage_bps for m in self.slippage_history if m.symbol == symbol]
         
         if not symbol_slippage:
-            # Fallback to default model: 2 bps base + 0.5 bps per ₹1Cr
-            return 2.0 + 0.5 * (position_size / 1e7)
+            # Fallback to default model: 5 bps base + 0.5 bps per ₹1Cr (realistic for Indian markets)
+            return 5.0 + 0.5 * (position_size / 1e7)
         
         # Use historical average + position size adjustment
         base_slippage = np.mean(symbol_slippage)

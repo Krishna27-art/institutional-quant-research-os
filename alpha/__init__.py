@@ -2,8 +2,6 @@
 
 from .orb_strategy import ORBStrategy, ORBSignal, ORBPosition
 from .vwap_strategy import VWAPStrategy, VWAPSignal, VWAPPosition
-from .chaotic_gcn import ChaoticGCNAlpha
-from .game_theoretic import GameTheoreticAlpha
 
 __all__ = [
     "ORBStrategy",
@@ -12,6 +10,9 @@ __all__ = [
     "VWAPStrategy",
     "VWAPSignal",
     "VWAPPosition",
-    "ChaoticGCNAlpha",
-    "GameTheoreticAlpha",
 ]
+
+# REMOVED (Profit-Centric Audit):
+# - ChaoticGCNAlpha: No proven edge, overfitting risk
+# - GameTheoreticAlpha: No proven edge, high complexity
+

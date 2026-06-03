@@ -3,9 +3,11 @@
 import { useState, useEffect } from 'react'
 
 export default function StatusBar() {
-  const [currentTime, setCurrentTime] = useState('')
+  const [currentTime, setCurrentTime] = useState<string | null>(null)
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
     setCurrentTime(new Date().toLocaleTimeString('en-US', { hour12: false }))
     const interval = setInterval(() => {
       setCurrentTime(new Date().toLocaleTimeString('en-US', { hour12: false }))
@@ -39,8 +41,8 @@ export default function StatusBar() {
           <span className="text-text-secondary">Alerts:</span>
           <span className="text-warning font-mono">3</span>
         </div>
-        <div className="text-text-secondary" suppressHydrationWarning>
-          {currentTime}
+        <div className="text-text-secondary">
+          {mounted ? currentTime : ''}
         </div>
       </div>
     </footer>

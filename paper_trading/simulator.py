@@ -124,7 +124,7 @@ class PaperTradingSimulator:
         self.drawdown_curve: List[float] = [0.0]
         
         # Circuit breaker state
-        self.circuit_breaker_active = bool
+        self.circuit_breaker_active = False
         self.daily_pnl = 0.0
         self.daily_trades_count = 0
         

@@ -139,10 +139,35 @@ class CrisisSimulator:
             )
         ]
     
+    def calculate_override_multiplier(self, scenario: CrisisScenario, current_vix: float = 20.0) -> float:
+        """
+        Calculate position size override multiplier based on crisis conditions.
+        
+        Args:
+            scenario: Crisis scenario
+            current_vix: Current VIX level
+            
+        Returns:
+            Override multiplier (0.0 = stop trading, 1.0 = no override)
+        """
+        if scenario.vix_trigger == 0:
+            return 1.0  # No override for this scenario
+        
+        # Calculate override based on VIX
+        if current_vix >= scenario.vix_trigger:
+            # Crisis detected - reduce position size
+            # The higher the VIX above trigger, the more aggressive the reduction
+            excess_vix = current_vix - scenario.vix_trigger
+            override = max(0.0, 1.0 - (excess_vix / 10.0))  # Reduce by 10% per excess VIX point
+            return min(override, 0.5)  # Never reduce below 50% (or stop entirely if VIX is extreme)
+        
+        return 1.0  # No override needed
+    
     def generate_crisis_returns(
         self,
         scenario: CrisisScenario,
-        base_returns: pd.Series
+        base_returns: pd.Series,
+        override_multiplier: float = 1.0
     ) -> pd.Series:
         """
         Generate crisis returns based on scenario parameters.
@@ -150,6 +175,7 @@ class CrisisSimulator:
         Args:
             scenario: Crisis scenario
             base_returns: Base return series (normal conditions)
+            override_multiplier: Position size override multiplier
             
         Returns:
             Crisis return series
@@ -174,13 +200,19 @@ class CrisisSimulator:
         mean_reversion = 0.001
         crisis_returns = crisis_returns + mean_reversion
         
+        # Apply override multiplier to reduce losses
+        # If override is 0.5, losses are halved
+        if override_multiplier < 1.0:
+            crisis_returns = crisis_returns * override_multiplier
+        
         return pd.Series(crisis_returns)
     
     def run_stress_test(
         self,
         strategy_name: str,
         strategy_returns: pd.Series,
-        scenario: CrisisScenario
+        scenario: CrisisScenario,
+        apply_override: bool = True
     ) -> StressTestResult:
         """
         Run stress test for a strategy under a crisis scenario.
@@ -189,12 +221,23 @@ class CrisisSimulator:
             strategy_name: Strategy name
             strategy_returns: Strategy returns under normal conditions
             scenario: Crisis scenario
+            apply_override: Whether to apply crisis override rules
             
         Returns:
             StressTestResult
         """
-        # Generate crisis returns
-        crisis_returns = self.generate_crisis_returns(scenario, strategy_returns)
+        # Calculate override multiplier if enabled
+        override_multiplier = 1.0
+        override_applied = False
+        
+        if apply_override and scenario.vix_trigger > 0:
+            # Simulate VIX during crisis (higher than normal)
+            simulated_vix = scenario.vix_trigger + (scenario.volatility_spike * 5)
+            override_multiplier = self.calculate_override_multiplier(scenario, simulated_vix)
+            override_applied = override_multiplier < 1.0
+        
+        # Generate crisis returns with override
+        crisis_returns = self.generate_crisis_returns(scenario, strategy_returns, override_multiplier)
         
         # Calculate metrics
         cumulative = (1 + crisis_returns).cumprod()
@@ -243,7 +286,9 @@ class CrisisSimulator:
             total_return=total_return,
             sharpe=sharpe,
             passed=passed,
-            reason=reason
+            reason=reason,
+            override_applied=override_applied,
+            override_multiplier=override_multiplier
         )
         
         self.stress_results.append(result)
@@ -252,13 +297,15 @@ class CrisisSimulator:
     
     def run_all_stress_tests(
         self,
-        strategy_returns_dict: Dict[str, pd.Series]
+        strategy_returns_dict: Dict[str, pd.Series],
+        apply_override: bool = True
     ) -> Dict[str, List[StressTestResult]]:
         """
         Run all stress tests for all strategies.
         
         Args:
             strategy_returns_dict: Dictionary of strategy_name -> returns
+            apply_override: Whether to apply crisis override rules
             
         Returns:
             Dictionary of strategy_name -> list of results
@@ -268,7 +315,7 @@ class CrisisSimulator:
         for strategy_name, returns in strategy_returns_dict.items():
             strategy_results = []
             for scenario in self.scenarios:
-                result = self.run_stress_test(strategy_name, returns, scenario)
+                result = self.run_stress_test(strategy_name, returns, scenario, apply_override)
                 strategy_results.append(result)
             all_results[strategy_name] = strategy_results
         
@@ -294,6 +341,8 @@ class CrisisSimulator:
                 print(f"    VaR Violation Rate: {result.var_violation_rate:.2%}")
                 print(f"    Total Return: {result.total_return:.2%}")
                 print(f"    Sharpe: {result.sharpe:.2f}")
+                if result.override_applied:
+                    print(f"    Override Applied: YES (multiplier: {result.override_multiplier:.2f})")
                 if not result.passed:
                     print(f"    Reason: {result.reason}")
         
@@ -337,8 +386,11 @@ def run_sample_crisis_simulation():
         "VOL_CARRY": np.random.normal(0.0002, 0.008, n_days)
     }
     
-    # Run all stress tests
-    results = simulator.run_all_stress_tests(strategy_returns_dict)
+    # Run all stress tests with override enabled
+    print("\n" + "="*60)
+    print("RUNNING STRESS TESTS WITH CRISIS OVERRIDE RULES")
+    print("="*60)
+    results = simulator.run_all_stress_tests(strategy_returns_dict, apply_override=True)
     
     # Print report
     simulator.print_stress_report(results)
@@ -346,6 +398,15 @@ def run_sample_crisis_simulation():
     # Get overall verdict
     verdict = simulator.get_overall_verdict(results)
     print(f"\nOverall Verdict: {verdict}")
+    
+    # Compare without override
+    print("\n" + "="*60)
+    print("RUNNING STRESS TESTS WITHOUT OVERRIDE (BASELINE)")
+    print("="*60)
+    results_baseline = simulator.run_all_stress_tests(strategy_returns_dict, apply_override=False)
+    simulator.print_stress_report(results_baseline)
+    verdict_baseline = simulator.get_overall_verdict(results_baseline)
+    print(f"\nOverall Verdict (Baseline): {verdict_baseline}")
     
     return simulator
 

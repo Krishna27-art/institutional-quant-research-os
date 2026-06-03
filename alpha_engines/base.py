@@ -151,7 +151,7 @@ class MLAlpha(BaseAlphaEngine):
         self.model = None
         self.feature_importance = None
         self.last_retrain_date = None
-        self.retrain_frequency_days = config.get("retrain_frequency_days", 5)
+        self.retrain_frequency_days = config.get("retrain_frequency_days", 7)  # Changed from 5 to 7 (weekly, Profit-Centric Audit)
     
     @abstractmethod
     def train_model(self, X: np.ndarray, y: np.ndarray) -> None:

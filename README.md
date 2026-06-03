@@ -1377,406 +1377,134 @@ Quant_Research_OS_v3:
 
 ---
 
-# QUANT RESEARCH OS V4: A SELF-IMPROVING ALPHA CIVILIZATION
+# QUANT RESEARCH OS V3.5: THE CONSTRAINED EVOLUTIONARY ORG
 
-**A radical reimagining of quant research as an autonomous, self-improving civilization of AI agents.**
+**A realistic, compliant, and cost-constrained evolutionary framework for automated alpha discovery.**
 
-## PREAMBLE: THE FAILURE OF CONVENTIONAL QUANT ARCHITECTURES
+## PREAMBLE: REVISING THE V4 VISION
 
-Most quant systems, including V3, are built on a hidden assumption: **the future will resemble the past**. They train on historical data, validate on slightly more recent data, and deploy. This is a brittle, backward-looking approach.
+The original V4 blueprint proposed "The Civilization," an autonomous network of 12+ AI agents executing massive genetic programming cycles across thousands of AWS EC2 instances. While visionary, a rigorous institutional audit revealed severe structural flaws: prohibitive computational costs, coordination chaos, look-ahead and regime biases, lack of regulatory compliance (SEBI guidelines on explainability), and unrealistic return/funding expectations.
 
-The elite firms (Renaissance, Two Sigma, Citadel, Jane Street, DE Shaw) do not think this way. They build **systems that learn continuously, reason causally, generate their own training data via simulation, and evolve faster than the market changes**.
+This revised **V3.5 specification** addresses all 23 audit issues directly. It pivots the architecture toward a highly disciplined, resource-constrained, and fully compliant agentic framework—**The Constrained Evolutionary Org**.
 
-V3 had many good components, but it was still a **static research pipeline** rather than a **living research organism**. The weaknesses are fatal for a 10-year horizon:
-
-| Weakness | Consequence |
-|----------|-------------|
-| Backtest-centric validation | Assumes historical patterns repeat; fails in novel regimes |
-| Human-in-the-loop for alpha generation | Bottleneck; cannot explore billions of possibilities |
-| No causal understanding | Correlations break; cannot reason about why alpha works |
-| Separate research and production environments | Slow iteration; feedback loops are long |
-| No synthetic market simulation | Cannot test strategies in regimes that have not occurred yet |
-| No adversarial red team | Blind to how other funds might kill the alpha |
-| No knowledge graph | Each experiment is isolated; no cumulative learning |
-| No online learning | Models become stale between retraining cycles |
-| No self-correction | System does not learn from its own mistakes |
-
-This document rebuilds from first principles.
-
----
-
-## PHASE 1: CRITIQUE OF QUANT RESEARCH OS V3
-
-### 1.1 Weaknesses
-
-1. **Alpha discovery is human-driven.** Humans read papers, generate ideas, code backtests. Throughput is too low.
-2. **Backtest overfitting is not systematically controlled.** Walk-forward validation is better than nothing, but nested cross-validation across non-stationary data is still fragile.
-3. **No causal inference layer.** The system does not distinguish correlation from causation. When market structure changes, previously predictive features become noise.
-4. **No intrinsic reward for exploration.** The system only optimizes Sharpe; it does not seek novel alphas that are uncorrelated with existing ones, leading to crowding within the fund.
-5. **No simulation of competitor behavior.** The system assumes it is alone in the market. In reality, other quant funds will attack its strategies.
-6. **No synthetic data generation.** The system cannot generate infinitely many realistic market scenarios to test robustness.
-7. **Knowledge is not cumulative.** Research results are stored as files, not as a structured graph. The system cannot ask "Which features have been stable across the last three regimes?" and get an answer instantly.
-8. **No automated hypothesis generation.** The system does not formulate its own research questions.
-9. **No meta-learning.** The system does not learn how to learn faster.
-10. **No continuous online adaptation.** Models are retrained weekly; the world changes faster.
-
-### 1.2 Missing Layers
-
-- **Causal Graph** – For reasoning about interventions and regime shifts.
-- **World Model** – A generative model of market dynamics, including latent factors, regime transitions, and competitor behavior.
-- **Epistemic Uncertainty Quantification** – Not just prediction intervals, but uncertainty about the model itself.
-- **Adversarial Robustness Layer** – Red team agents that try to break each strategy.
-- **Self-Play Training** – Strategies compete against each other in simulated environments.
-- **Automated Feature Synthesis** – Beyond genetic programming: differentiable feature learning.
-- **Research Memory** – A graph database that stores every experiment, result, hypothesis, and failure, enabling the system to reason about what has been tried and what has not.
-- **Automated Paper Digestion** – LLM agents that read new papers, extract ideas, and propose experiments.
-- **Alpha Lifecycle Management** – From idea to deployment to decay detection to retirement, fully automated.
+| Dimension | V4 Assumption | V3.5 Reality (Solution) |
+|---|---|---|
+| **Compute Cost** | Parallel 10,000 EC2 instances | Adaptive population (starts at 100) + surrogate fitness proxies + early stopping |
+| **Agent Coordination** | 12+ independent agents (chaos) | Reduced to 5 core agents + centralized priority-queue message bus |
+| **GP Feature Discovery** | General Python code (look-ahead leak) | Constrained GP DSL + timestamp-aware operators + correlation leakage checks |
+| **Validation Overfitting** | Nested walk-forward (leaky time series) | Purged walk-forward validation + 3-month embargo periods |
+| **Synthetic Data** | Unconstrained VAE/Diffusion | Regime-conditional GANs constrained by stylized facts + discriminator check |
+| **Online Learning Drift** | Continuous streaming updates (forgetting) | Hybrid model (weekly base retraining + Kalman residual corrections) + experience replay |
+| **Position Sizing** | Infinite liquidity Kelly fraction | Liquidity decay factor + 10% ADV participation cap + correlation-adjusted capacity |
+| **Risk Counterfactuals** | O(N²) all-portfolio simulations | Local counterfactuals (positions > 5% AUM) + predefined scenario library |
+| **SEBI Compliance** | Explainability hand-waved | Post-hoc SHAP/LIME explanation + Human-in-the-Loop strategy approval |
+| **Project Roadmap** | 10-year fantasy roadmap | Rolling 2-year modular plan |
+| **Funding & Returns** | ₹500 crore upfront budget, 500% returns | Phased, milestone-based budget (₹10cr Year 1), 20-30% net CAGR targets |
+| **Knowledge Graph** | Infinite O(N) query growth | Temporal sharding (yearly shards) + importance pruning of inactive nodes |
 
 ---
 
-## PHASE 2: QUANT RESEARCH OS V4 – FIRST PRINCIPLES
+## PHASE 1: SYSTEM ARCHITECTURE & 5 CORE AGENTS
 
-### 2.1 Foundational Principles
-
-1. **The market is a partially observable, non-stationary, multi-agent game.**
-2. **Alpha is not a property of a strategy; it is a property of a strategy relative to the current market state and other agents.**
-3. **The goal is not to predict prices, but to find exploits in the market's current inefficiencies.**
-4. **Learning must be continuous and online.**
-5. **The system must generate its own training data via simulation.**
-6. **The system must reason causally, not just correlationally.**
-7. **The system must evolve faster than the market changes.**
-8. **Every component must be self-improving via feedback loops.**
-
-### 2.2 System Architecture Overview
+To prevent coordination chaos and communication explosion, we consolidate the system into 5 core agents managed by a centralized Orchestrator over a priority message bus.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                         QUANT RESEARCH OS V4 – "THE CIVILIZATION"                    │
-├─────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                      │
-│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
-│  │                         WORLD MODEL & SIMULATION LAYER                        │   │
-│  │  • Generative model of market dynamics (latent factors, regime transitions)   │   │
-│  │  • Multi-agent simulator (competitors, liquidity takers, market makers)       │   │
-│  │  • Synthetic data generator (infinite scenarios)                             │   │
-│  │  • Causal graph of market variables                                          │   │
-│  └──────────────────────────────────────────────────────────────────────────────┘   │
-│                                      │                                               │
-│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
-│  │                         RESEARCH & DISCOVERY LAYER                            │   │
-│  │  • Autonomous paper reading & digestion                                      │   │
-│  │  • Hypothesis generation (LLM + evolutionary search)                         │   │
-│  │  • Alpha discovery (genetic programming, RL, program synthesis)              │   │
-│  │  • Feature synthesis (differentiable feature learning)                       │   │
-│  │  • Causal discovery (from observational data)                                │   │
-│  └──────────────────────────────────────────────────────────────────────────────┘   │
-│                                      │                                               │
-│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
-│  │                         VALIDATION & RANKING LAYER                           │   │
-│  │  • Nested walk-forward with regime-aware splitting                           │   │
-│  │  • Adversarial validation (red team agents)                                  │   │
-│  │  • Cross-validation across simulated regimes                                 │   │
-│  │  • Robustness to perturbation (stress testing)                               │   │
-│  │  • Meta-learning to predict which alphas will generalize                     │   │
-│  └──────────────────────────────────────────────────────────────────────────────┘   │
-│                                      │                                               │
-│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
-│  │                         KNOWLEDGE GRAPH LAYER                                │   │
-│  │  • Stores every experiment, feature, strategy, regime, result, failure       │   │
-│  │  • Enables reasoning: "Which features worked in similar regimes?"            │   │
-│  │  • Continuous learning from all past research                                │   │
-│  └──────────────────────────────────────────────────────────────────────────────┘   │
-│                                      │                                               │
-│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
-│  │                         PRODUCTION & ADAPTATION LAYER                         │   │
-│  │  • Real-time signal generation (sub-second)                                  │   │
-│  │  • Online learning (continuous model updates)                                │   │
-│  │  • Alpha decay detection & auto-retirement                                   │   │
-│  │  • Adaptive position sizing (regime-aware, liquidity-aware)                  │   │
-│  │  • Execution intelligence (signal-adaptive quoting, smart routing)           │   │
-│  └──────────────────────────────────────────────────────────────────────────────┘   │
-│                                      │                                               │
-│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
-│  │                         PORTFOLIO & RISK LAYER                               │   │
-│  │  • Meta-alpha model (predicts which alphas will work next)                   │   │
-│  │  • Dynamic factor allocation (beyond risk parity)                            │   │
-│  │  • Real-time VaR, CVaR, stress VaR, liquidity-adjusted VaR                   │   │
-│  │  • Counterfactual risk analysis ("What would have happened if...")           │   │
-│  └──────────────────────────────────────────────────────────────────────────────┘   │
-│                                      │                                               │
-│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
-│  │                         AGENTIC AI LAYER                                     │   │
-│  │  • 12+ specialized agents (Research, Alpha, Validation, Risk, Execution, etc.)│   │
-│  │  • Communicate via shared message bus and knowledge graph                    │   │
-│  │  • Self-improving via reinforcement learning from research outcomes          │   │
-│  └──────────────────────────────────────────────────────────────────────────────┘   │
-│                                                                                      │
-└─────────────────────────────────────────────────────────────────────────────────────┘
+                  ┌─────────────────────────────────────┐
+                  │        Centralized Message Bus      │
+                  │         (with Priority Queues)      │
+                  └──────────────────┬──────────────────┘
+                                     │
+         ┌───────────────┬───────────┼───────────┬───────────────┐
+         ▼               ▼           ▼           ▼               ▼
+   ┌───────────┐   ┌───────────┐ ┌───────────┐ ┌───────────┐   ┌───────────┐
+   │ Research  │   │   Alpha   │ │ Validator │ │   Risk    │   │ Execution │
+   │   Agent   │   │ Generator │ │   Agent   │ │   Agent   │   │   Agent   │
+   │           │   │  (GP/DSL) │ │ (Purged)  │ │(Capacity) │   │ (ADV Cap) │
+   └───────────┘   └───────────┘ └───────────┘ └───────────┘   └───────────┘
 ```
+
+### 1.1 Agent Roles
+
+1. **Research Agent (Orchestrator)**: Formulates high-level research hypotheses based on academic papers and knowledge graph. Proposes feature sets and directions.
+2. **Alpha Generator Agent**: Receives research directions and conducts genetic programming (GP) based search using a highly constrained Domain-Specific Language (DSL). Applies surrogate fitness checks.
+3. **Validator Agent**: Evaluates candidate strategies submitted by the Generator using purged walk-forward validation and embargoes. Applies complexity penalties.
+4. **Risk Agent**: Computes portfolio risks (VaR, CVaR), runs stress tests using the scenario library, performs local counterfactual simulations, and maintains the correlation-adjusted aggregate capacity model.
+5. **Execution Agent**: Translates validated strategy weights into execution orders. Applies liquidity decay factors and handles the 10% ADV participation caps.
+
+### 1.2 Communication Protocol
+Agents communicate via a centralized message bus using priority queues to prevent race conditions and message flooding. All agents share a unified reward metric: **global portfolio Net Sharpe ratio improvement**.
 
 ---
 
-## PHASE 3: AUTONOMOUS AGENT SYSTEM
+## PHASE 2: COST-CONSTRAINED ALPHA SEARCH (GP)
 
-### 3.1 Agent Roles & Responsibilities
+Rather than assuming infinite compute, the Alpha Generator Agent implements strict budget-preserving algorithms:
 
-| Agent | Responsibility | Communication Pattern |
-|-------|----------------|----------------------|
-| **Research Agent** | Formulates hypotheses based on knowledge graph and recent papers | Submits hypothesis to Alpha Discovery |
-| **Paper Reading Agent** | Continuously ingests new papers, extracts ideas, adds to knowledge graph | Publishes extracted concepts, features, methods |
-| **Alpha Discovery Agent** | Runs evolutionary search, genetic programming, RL to generate candidate alphas | Submits candidate strategies to Validation Queue |
-| **Strategy Generator Agent** | Translates abstract alpha ideas into executable code (Python/C++/Rust) | Produces versioned strategy code |
-| **Feature Discovery Agent** | Synthesizes new features from raw data using differentiable search | Adds features to knowledge graph |
-| **Regime Agent** | Detects current regime, forecasts regime transitions | Publishes regime probabilities and confidence |
-| **Risk Agent** | Computes real-time risk metrics, stress tests, counterfactuals | Alerts on limit breaches |
-| **Execution Agent** | Generates optimal order placements (price, quantity, venue) | Sends orders to broker gateways |
-| **Portfolio Agent** | Computes optimal alpha weights, rebalances portfolio | Submits weight changes to Execution Agent |
-| **Validation Agent** | Runs backtests, walk-forward, adversarial tests | Returns validation score and robustness metrics |
-| **Red Team Agent** | Actively tries to break strategies via adversarial perturbations, regime shifts, crowding | Reports failure modes |
-| **Adversarial Agent** | Simulates competitor strategies that would exploit the alpha | Informs capacity estimates and decay predictions |
-| **Market Simulator Agent** | Generates synthetic market scenarios (infinite) | Provides training environment for other agents |
-
-### 3.2 Communication Protocol
-
-All agents publish to a shared event bus and read/write to the knowledge graph.
-
-**Message schema:**
-```yaml
-message:
-  id: uuid
-  timestamp: 2025-06-01T12:00:00Z
-  source_agent: "AlphaDiscoveryAgent"
-  target_agent: "ValidationAgent" (or "broadcast")
-  message_type: "proposed_strategy"
-  payload:
-    strategy_id: "alpha_5min_ORB_v7"
-    code_repo: "strategies/alpha_5min_ORB_v7"
-    features: ["RV_5min", "vwap_dist", "atr_14d"]
-    parameters: {"stop_loss_atr_pct": 0.1, "target": "EOD"}
-    expected_sharpe: 1.2
-  context: {"regime": "bull_trend", "training_window": "2020-2023"}
-```
-
-### 3.3 Agentic AI Architecture
-
-Each agent is a **fine-tuned large language model** (e.g., Llama 4 200B) with:
-
-- Long context window (1M tokens) to remember research history
-- Tool use: can execute code, query databases, run simulations
-- Self-reflection: can critique its own outputs
-- Memory: vector database of past decisions and outcomes
-- Reinforcement learning from feedback (validation scores, PnL)
-
-Agents are **not static**. They evolve via:
-- Fine-tuning on new research results weekly
-- Reinforcement learning from successful/failed strategies
-- Mutation and crossover between agent configurations
+1. **Adaptive Population Sizing**: GP search starts with a population of 100 candidates. The search space is expanded only for lineages that show promising out-of-sample improvements.
+2. **Surrogate Fitness Proxy**: Before running expensive multi-year backtests, candidate strategies are evaluated using a cheap proxy model (evaluating basic Information Coefficient and turnover over a 6-month subset). 99% of unpromising candidates are filtered here.
+3. **Fitness Inheritance**: Child strategies inherit the fitness score of their parent unless significant structural mutations are applied, saving compute on minor parameter tweaks.
+4. **Early Stopping**: Backtest runs terminate early if a candidate exhibits high drawdowns or zero information coefficient in the first year of the evaluation window.
+5. **Complexity Cap**: We enforce minimum description length (MDL) and AIC/BIC penalties ($-\text{complexity\_penalty} \times k$). Any GP expression exceeding 10 total operations is rejected.
 
 ---
 
-## PHASE 4: ALPHA SEARCH SYSTEM
+## PHASE 3: ROBUST VALIDATION & LEAKAGE CONTROL
 
-### 4.1 Search Space
+To prevent strategies from memorizing noise or using future information, the Validator Agent applies three structural checks:
 
-The system searches over:
-
-- **Feature space**: 10,000+ base features (raw market data, derived indicators, alternative data)
-- **Operator space**: 50+ operators (+, -, *, /, log, exp, rank, lag, diff, rolling_mean, rolling_std, sign, abs, max, min, if_then_else, etc.)
-- **Parameter space**: continuous (e.g., window lengths, thresholds) and discrete (e.g., entry rule type)
-- **Execution space**: stop loss rules, profit targets, position sizing logic
-
-Search space size: effectively infinite (10^20+)
-
-### 4.2 Search Algorithms
-
-| Method | Role | Frequency |
-|--------|------|-----------|
-| Genetic programming | Primary: evolve symbolic alpha expressions | Continuous, 24/7 |
-| Reinforcement learning (PPO) | Learn policy that generates high-performing strategies | Weekly |
-| Bayesian optimization | Hyperparameter tuning for promising candidates | On demand |
-| LLM-guided program synthesis | Use LLM to propose novel strategy structures | Daily |
-| Symbolic regression (Eureqa style) | Find closed-form expressions | Weekly |
-| Differentiable feature learning | Learn features via gradient descent | Weekly |
-
-### 4.3 Evolutionary Algorithm Configuration
-
-```yaml
-EvolutionarySearch:
-  population_size: 10,000
-  generations_per_cycle: 100
-  cycles_per_day: 10
-  fitness: Sharpe (out-of-sample, 3-year train, 1-year test)
-  selection: tournament (size 5)
-  crossover: 0.7 (subtree crossover)
-  mutation: 0.2 (point mutation, subtree mutation, hoist mutation)
-  elitism: 100 (keep best 100)
-  novelty_search: 0.3 (reward diversity to avoid crowding)
-  parallel_execution: 10,000 AWS EC2 instances
-```
+1. **Purged Walk-Forward**: Time-series cross-validation includes a 1-year **purge gap** between training and testing folds to eliminate overlapping returns.
+2. **Embargo Period**: A 3-month **embargo period** is added immediately after each test fold to prevent look-ahead spillover from auto-correlated features.
+3. **Leakage Detection**: All GP operators are timestamp-aware. A correlation check is performed; any candidate showing correlation with future returns that is not fully explained by lagged features (leakage score > 0.01) is instantly rejected.
 
 ---
 
-## PHASE 5: KNOWLEDGE GRAPH
+## PHASE 4: RISK & POSITION SIZING
 
-### 5.1 Schema
+V3.5 models market liquidity constraints and correlation-adjusted risk at scale:
 
-```yaml
-Node types:
-  - Paper (id, title, authors, year, abstract, pdf_url)
-  - Feature (id, name, definition, computation_cost)
-  - Strategy (id, code, parameters, performance_metrics)
-  - Regime (id, name, defining_conditions)
-  - Experiment (id, hypothesis, design, result)
-  - Failure (id, strategy_id, reason, date)
-  - Alpha (id, strategy_id, estimated_sharpe, capacity, decay_half_life)
-  - MarketCondition (id, date, vix, return, volume, etc.)
-
-Edge types:
-  - PAPER_INTRODUCES_FEATURE
-  - PAPER_INTRODUCES_STRATEGY
-  - STRATEGY_USES_FEATURE
-  - STRATEGY_PERFORMS_IN_REGIME (with weight)
-  - EXPERIMENT_CONFIRMS_HYPOTHESIS
-  - EXPERIMENT_REJECTS_HYPOTHESIS
-  - FAILURE_CAUSED_BY
-  - ALPHA_REPLACED_BY
-  - FEATURE_CORRELATED_WITH (weight)
-  - REGIME_TRANSITION_TO (probability, from historical data)
-```
-
-### 5.2 Reasoning Capabilities
-
-With this graph, the system can answer queries:
-
-- "Which features have been stable across the last three bull markets?" → Graph traversal + stability score.
-- "Which strategies failed during high-volatility regimes?" → Pattern matching.
-- "What is the most promising unexplored feature combination?" → Graph completion.
-- "Which papers are most relevant to the current regime?" → Semantic similarity + regime tags.
+1. **Liquidity Decay Factor**: Position sizing incorporates market impact. The allocated size is scaled as:
+   $$\text{position} = \text{base\_position} \times \exp\left(-\frac{\text{position}}{\text{capacity\_limit}}\right)$$
+2. **Participation Cap**: Strategy executions are restricted to a maximum participation rate of 10% of the average daily volume (ADV) per minute.
+3. **Correlation-Adjusted Capacity**: Portfolio capacity is modeled dynamically. If two strategies are highly correlated, their combined capacity allocation is reduced.
+4. **Local Counterfactual Risk**: Instead of running full portfolio simulations across the entire timeline, the Risk Agent runs counterfactuals only for the largest positions (>5% of AUM).
+5. **Predefined Scenario Library**: Incorporates 100 historical and synthetic market stress scenarios (e.g., VIX +10%, 2008 Lehman collapse, 2020 COVID crash) to run fast parametric evaluations.
 
 ---
 
-## PHASE 6: FINAL ARCHITECTURE & BLUEPRINT
+## PHASE 5: REGULATORY COMPLIANCE & MLOPS
 
-### 6.1 Quant Research OS V4 – Complete Architecture
+To comply with SEBI algorithmic trading guidelines and ensure operational stability:
 
-```yaml
-Quant_Research_OS_V4:
-  name: "The Civilization"
-  design_principles:
-    - Self-improving
-    - Continuous learning
-    - Causal reasoning
-    - Multi-agent
-    - Generative
-    - Evolutionary
-  
-  layers:
-    Data_Ingestion:
-      - Real-time market data (NSE/BSE, tick-level)
-      - Alternative data (100+ sources)
-      - News & social media (real-time)
-      - Economic calendar, corporate actions
-      - Synthetic data generator (infinite)
-    
-    Feature_Synthesis:
-      - Differentiable feature learning (neural)
-      - Symbolic feature discovery (GP)
-      - Causal feature discovery
-      - Feature graph (knowledge graph of feature relationships)
-    
-    World_Model:
-      - Generative model of market dynamics (VAE + diffusion)
-      - Latent factor extraction (nonlinear ICA)
-      - Regime transition model (Bayesian structural time series)
-      - Causal graph (discovered from data)
-    
-    Alpha_Discovery:
-      - Genetic programming (10,000 nodes, 24/7)
-      - RL policy search (PPO, SAC)
-      - LLM program synthesis (fine-tuned CodeLlama)
-      - Program synthesis (DreamCoder)
-      - Bayesian optimization for hyperparameters
-    
-    Validation:
-      - Nested walk-forward (time-series cross-validation)
-      - Adversarial validation (red team)
-      - Synthetic regime testing (simulate 10,000 scenarios)
-      - Robustness to perturbation (feature noise, missing data)
-      - Statistical significance (bootstrap)
-    
-    Knowledge_Graph:
-      - Stores every experiment, feature, strategy, result
-      - Versioned, immutable, append-only
-      - Enables reasoning: "What worked in similar conditions?"
-    
-    Production:
-      - Real-time signal generation (sub-second)
-      - Online learning (daily incremental updates)
-      - Adaptive position sizing (Kelly + confidence + regime + liquidity)
-      - Execution intelligence (optimal quoting, smart routing)
-      - Circuit breakers & auto-deactivation
-    
-    Portfolio_Construction:
-      - Meta-alpha model (predictive of future performance)
-      - Dynamic factor allocation (market state-conditioned)
-      - Risk parity + Black-Litterman with views from meta-alpha
-      - Real-time portfolio optimization (convex optimization)
-    
-    Risk_Management:
-      - Real-time VaR, CVaR (historical, parametric, Monte Carlo)
-      - Liquidity-adjusted VaR
-      - Stress VaR (predefined + synthetic scenarios)
-      - Counterfactual risk analysis ("What would have happened if...")
-      - Tail hedging (options, volatility futures)
-    
-    Monitoring_Governance:
-      - Alpha decay detection (rolling Sharpe, IC, factor exposure)
-      - Feature drift (PSI, KL divergence)
-      - Execution quality (slippage tracking)
-      - Compliance (position limits, blacklists)
-      - Audit trail (immutable, cryptographically signed)
-```
+1. **Strategy Approval Workflow (Human-in-the-Loop)**: AI agents cannot deploy strategies live. Any strategy passing the Validator Agent enters a staging environment for 60 days. Final deployment requires sign-off from a human quant.
+2. **Human-Readable Decision Logs**: The system logs a human-readable text explanation detailing the mathematical logic and input signals behind every trade placement.
+3. **Post-Hoc Explainability**: MLOps pipelines output SHAP or LIME value breakdowns for all model decisions.
+4. **Online Learning Drift Control**: We implement a hybrid learning loop. A base model is retrained weekly, and online corrections are applied via a Kalman filter on residuals. To prevent catastrophic forgetting, retraining utilizes experience replay (sampling historical regimes evenly).
 
-### 6.2 Expected Edge Contribution of Every Module (Cumulative)
+---
 
-| Module | Cumulative Sharpe |
-|--------|-------------------|
-| Raw data + basic features | 0.0 |
-| + Basic alphas (ORB, VWAP, PCP) | 0.8 |
-| + Knowledge graph | 0.9 |
-| + Evolutionary alpha search | 1.4 |
-| + Online learning & decay detection | 1.7 |
-| + Causal inference | 1.9 |
-| + Synthetic simulation | 2.1 |
-| + Multi-agent simulation | 2.3 |
-| + Self-play training | 2.5 |
-| + Meta-learning | 2.7 |
-| + Full autonomous research | 3.0+ |
+## PHASE 6: PRUNED KNOWLEDGE GRAPH
 
-### 6.3 Deployment Roadmap (10 years)
+To maintain low latency on graph queries, the Knowledge Graph is optimized with:
 
-| Year | Milestone | Key Components |
-|------|-----------|----------------|
-| 1 | Foundation | Data pipeline, knowledge graph, basic alpha discovery (GP) |
-| 2 | Automation | Agentic AI system, LLM integration, synthetic data generation |
-| 3 | Scale | 10,000-node evolutionary search, causal discovery, world model |
-| 4 | Self-improvement | Agents learn from feedback, online learning fully deployed |
-| 5 | Multi-agent simulation | Red team, adversarial agents, self-play |
-| 6 | Transfer learning | Synthetic-to-real transfer, regime generalization |
-| 7 | Explainable AI | Causal explanations for every alpha |
-| 8 | Autonomous research | System generates its own research agenda |
-| 9 | Meta-learning | System learns how to learn faster |
-| 10 | Singularity | System can discover alphas beyond human comprehension |
+1. **Temporal Sharding**: Nodes (Papers, Features, Alphas) and edges are partitioned into yearly shards. Queries default to the current year's active shard.
+2. **Importance Pruning**: The database automatically archives nodes and edges that have not been cited or reused in any experiment for over 6 months and have zero citations.
 
-### 6.4 Final Sign-Off
+---
 
-**Initial funding required:** ₹500 crore (first 3 years)  
-**Expected annual return on research investment:** 500%+ (if successful)  
-**Probability of success (becoming top-10 quant fund):** 60%
+## PHASE 7: BUDGET, ROADMAP, & EXPECTED PERFORMANCE
 
-- **Chief Science Officer:** ✅
-- **Head of Research:** ✅
-- **CTO:** ✅
-- **Risk Committee:** ✅
+### 7.1 Phased Funding
+- **Year 1 (Proof of Concept)**: ₹10 crore (budget for 10 base features, 5 core agents, tick data, and core infrastructure).
+- **Year 2 (Scaling)**: ₹50 crore (scale GP search, add news/alternative data, deploy live trading).
+- **Year 3 (Full Deployment)**: ₹200 crore (expand AUM, optimize execution hot paths).
 
-**We begin construction immediately.**
+### 7.2 Expected Performance
+- **Target Sharpe**: 1.2 – 1.6 (out-of-sample)
+- **Net CAGR**: 20% – 30% (realistic target for Indian equity markets)
+- **Expected Alpha Velocity**: 10 new high-quality alphas per year (net of decay).
+
+### 7.3 Rolling 2-Year Roadmap
+- **Q1-Q2 Year 1**: Consolidate agents into 5 core roles, implement priority message bus.
+- **Q3-Q4 Year 1**: Deploy purged walk-forward validation and surrogate fitness GP.
+- **Q1-Q2 Year 2**: Build temporal sharding in Knowledge Graph and SEBI compliance logs.
+- **Q3-Q4 Year 2**: Integrate local counterfactual risk engine and execute live trading with AUM scaling.

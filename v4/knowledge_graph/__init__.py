@@ -1,34 +1,24 @@
-"""
-V4 Knowledge Graph Layer
-Graph database for storing experiments, features, strategies, regimes, results, and failures.
-Enables reasoning about what has been tried and what has not.
-"""
-
-from .graph_schema import (
-    NodeType,
-    EdgeType,
-    GraphNode,
-    GraphEdge,
-    KnowledgeGraphSchema,
-)
+"""V3.5 knowledge graph package."""
 
 from .knowledge_graph import (
-    KnowledgeGraph,
+    Edge,
     GraphQuery,
+    KnowledgeGraph,
+    Node,
+    NodeType,
     QueryResult,
     ReasoningEngine,
+    RelationshipType,
 )
 
 __all__ = [
-    # Schema
     "NodeType",
-    "EdgeType",
-    "GraphNode",
-    "GraphEdge",
-    "KnowledgeGraphSchema",
-    # Graph
-    "KnowledgeGraph",
+    "RelationshipType",
+    "Node",
+    "Edge",
     "GraphQuery",
     "QueryResult",
     "ReasoningEngine",
+    "KnowledgeGraph",
 ]
+

@@ -262,7 +262,7 @@ class FeatureConfig:
     ])
     
     # Rolling retraining
-    rolling_retrain_frequency_days: int = 5
+    rolling_retrain_frequency_days: int = 7  # Changed from 5 to 7 (weekly, Profit-Centric Audit)
     online_learning: bool = False  # Disabled per debate
 
 

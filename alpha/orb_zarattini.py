@@ -17,7 +17,13 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, time
 from dataclasses import dataclass
-import talib
+
+try:
+    import talib
+    TALIB_AVAILABLE = True
+except ImportError:
+    TALIB_AVAILABLE = False
+    print("TA-Lib not available. Install with: pip install TA-Lib")
 
 
 @dataclass
@@ -46,6 +52,14 @@ class ORBConfig:
     
     # Slippage (Indian market: 2-5 bps for large caps)
     slippage_bps: float = 2.0
+    
+    # Indian Transaction Costs (CRITICAL FIX)
+    brokerage_per_order: float = 20.0  # ₹20 per order
+    stamp_duty_rate: float = 0.00015  # 0.015% stamp duty on buy side
+    stt_rate: float = 0.00025  # 0.025% STT on sell side (equity delivery)
+    exchange_rate: float = 0.0000345  # 0.00345% exchange charges
+    sebi_fees_rate: float = 0.000001  # 0.0001% SEBI turnover fee
+    gst_rate: float = 0.18  # 18% GST on brokerage
 
 
 @dataclass
@@ -106,8 +120,26 @@ class ORBBacktesterZarattini:
         low = data['low'].values
         close = data['close'].values
         
-        atr = talib.ATR(high, low, close, timeperiod=period)
-        return pd.Series(atr, index=data.index)
+        if TALIB_AVAILABLE:
+            atr = talib.ATR(high, low, close, timeperiod=period)
+            return pd.Series(atr, index=data.index)
+        else:
+            # Fallback: manual ATR calculation
+            high_low = high - low
+            high_close = np.abs(high - np.roll(close, 1))
+            low_close = np.abs(low - np.roll(close, 1))
+            
+            tr = np.maximum(high_low, np.maximum(high_close, low_close))
+            tr[0] = 0  # First value is NaN
+            
+            # Wilder's smoothing
+            atr = np.zeros_like(tr)
+            atr[period - 1] = np.mean(tr[:period])
+            
+            for i in range(period, len(tr)):
+                atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period
+            
+            return pd.Series(atr, index=data.index)
     
     def calculate_relative_volume(
         self,
@@ -122,22 +154,47 @@ class ORBBacktesterZarattini:
     def calculate_average_volume(
         self,
         data: pd.DataFrame,
-        lookback_days: int = 20
+        lookback_days: int = 14
     ) -> float:
-        """Calculate average volume for same time period."""
-        # Get same time-of-day volume for last lookback days
-        same_time_volumes = []
+        """
+        Calculate average OR (Opening Range) volume from last lookback days.
         
-        for i in range(1, min(lookback_days + 1, len(data))):
-            # Get volume from same time period (first 5 minutes)
-            idx = -i * 78  # Approx 78 bars per day (5-min bars)
-            if idx >= -len(data):
-                same_time_volumes.append(data['volume'].iloc[idx])
+        CRITICAL FIX: This must calculate the average of FIRST 5-MINUTE volume
+        from previous trading days, not arbitrary indices.
+        """
+        # Get unique trading days
+        unique_days = data.index.normalize().unique()
         
-        if not same_time_volumes:
-            return data['volume'].mean()
+        # Collect OR volumes from previous days
+        or_volumes = []
         
-        return np.mean(same_time_volumes)
+        for i in range(1, min(lookback_days + 1, len(unique_days))):
+            day_idx = -i
+            if day_idx < -len(unique_days):
+                continue
+            
+            target_day = unique_days[day_idx]
+            day_data = data[data.index.normalize() == target_day]
+            
+            # Get first 5-minute volume (first orb_minutes bars)
+            if len(day_data) >= self.config.orb_minutes:
+                or_volume = day_data.iloc[:self.config.orb_minutes]['volume'].sum()
+                or_volumes.append(or_volume)
+        
+        if not or_volumes:
+            # Fallback: use average of all data (not ideal but prevents crash)
+            print(f"WARNING: Could not calculate OR volume average. Using fallback.")
+            return data['volume'].mean() / 78  # Rough estimate
+        
+        avg_or_volume = np.mean(or_volumes)
+        
+        # Debug output
+        print(f"DEBUG OR Volume Calculation:")
+        print(f"  Lookback days: {len(or_volumes)}")
+        print(f"  OR volumes (last 5): {or_volumes[-5:] if len(or_volumes) >= 5 else or_volumes}")
+        print(f"  Average OR volume: {avg_or_volume:,.0f}")
+        
+        return avg_or_volume
     
     def identify_stocks_in_play(
         self,
@@ -236,7 +293,15 @@ class ORBBacktesterZarattini:
             return
         
         # Get ATR at entry
-        atr = atr_series.loc[day].iloc[-1]
+        try:
+            atr = atr_series.loc[day].iloc[-1]
+        except (KeyError, IndexError):
+            # Fallback: get ATR from day_data
+            try:
+                atr = atr_series.loc[day_data.index].iloc[-1]
+            except (KeyError, IndexError):
+                # Final fallback: use average ATR
+                atr = atr_series.mean()
         
         # Determine direction (Zarattini: trade in direction of OR close)
         if orb_close > (orb_high + orb_low) / 2:
@@ -261,9 +326,22 @@ class ORBBacktesterZarattini:
         for idx, row in post_orb_data.iterrows():
             if row['high'] > orb_high:
                 # Breakout detected
-                entry_price = orb_high  # Enter at OR high
+                # CRITICAL FIX: Use actual breakout price, not OR high
+                entry_price = row['high']  # Enter at actual breakout price
                 stop_loss = entry_price - (atr * self.config.atr_stop_multiplier)
                 target = entry_price + (atr * self.config.atr_stop_multiplier * self.config.target_profit_multiplier)
+                
+                # Debug output for stop loss verification
+                print(f"DEBUG LONG TRADE:")
+                print(f"  Entry: {entry_price:.2f}")
+                print(f"  Stop: {stop_loss:.2f} (should be below entry)")
+                print(f"  Target: {target:.2f}")
+                print(f"  ATR: {atr:.2f}")
+                print(f"  RV: {rv:.2f}")
+                
+                # Verify stop loss is below entry
+                if stop_loss >= entry_price:
+                    print(f"ERROR: Stop loss {stop_loss:.2f} >= entry {entry_price:.2f} - STOP LOSS INVERTED!")
                 
                 # Simulate execution
                 self._execute_trade(
@@ -294,9 +372,22 @@ class ORBBacktesterZarattini:
         for idx, row in post_orb_data.iterrows():
             if row['low'] < orb_low:
                 # Breakdown detected
-                entry_price = orb_low  # Enter at OR low
+                # CRITICAL FIX: Use actual breakdown price, not OR low
+                entry_price = row['low']  # Enter at actual breakdown price
                 stop_loss = entry_price + (atr * self.config.atr_stop_multiplier)
                 target = entry_price - (atr * self.config.atr_stop_multiplier * self.config.target_profit_multiplier)
+                
+                # Debug output for stop loss verification
+                print(f"DEBUG SHORT TRADE:")
+                print(f"  Entry: {entry_price:.2f}")
+                print(f"  Stop: {stop_loss:.2f} (should be above entry)")
+                print(f"  Target: {target:.2f}")
+                print(f"  ATR: {atr:.2f}")
+                print(f"  RV: {rv:.2f}")
+                
+                # Verify stop loss is above entry
+                if stop_loss <= entry_price:
+                    print(f"ERROR: Stop loss {stop_loss:.2f} <= entry {entry_price:.2f} - STOP LOSS INVERTED!")
                 
                 # Simulate execution
                 self._execute_trade(
@@ -311,6 +402,49 @@ class ORBBacktesterZarattini:
                     day_data=day_data.loc[idx:]
                 )
                 break
+    
+    def _calculate_transaction_costs(
+        self,
+        entry_price: float,
+        exit_price: float,
+        quantity: int,
+        side: str
+    ) -> float:
+        """
+        Calculate Indian transaction costs.
+        
+        CRITICAL FIX: This must include all Indian market costs:
+        - Brokerage (per order)
+        - Stamp duty (buy side only)
+        - STT (sell side only)
+        - Exchange charges (both sides)
+        - SEBI fees (both sides)
+        - GST (on brokerage)
+        """
+        entry_value = entry_price * quantity
+        exit_value = exit_price * quantity
+        
+        # Brokerage (per order)
+        brokerage = self.config.brokerage_per_order * 2  # Entry + exit
+        
+        # Stamp duty (buy side only)
+        stamp_duty = entry_value * self.config.stamp_duty_rate if side == 'LONG' else 0
+        
+        # STT (sell side only)
+        stt = exit_value * self.config.stt_rate if side == 'LONG' else 0  # STT on sell for longs
+        
+        # Exchange charges (both sides)
+        exchange_charges = (entry_value + exit_value) * self.config.exchange_rate
+        
+        # SEBI fees (both sides)
+        sebi_fees = (entry_value + exit_value) * self.config.sebi_fees_rate
+        
+        # GST (18% on brokerage)
+        gst = brokerage * self.config.gst_rate
+        
+        total_costs = brokerage + stamp_duty + stt + exchange_charges + sebi_fees + gst
+        
+        return total_costs
     
     def _execute_trade(
         self,
@@ -370,13 +504,26 @@ class ORBBacktesterZarattini:
             actual_entry = entry_price * (1 - slippage_pct)
             actual_exit = exit_price * (1 + slippage_pct)
         
+        # Calculate transaction costs (CRITICAL FIX)
+        transaction_costs = self._calculate_transaction_costs(
+            actual_entry, actual_exit, quantity, side
+        )
+        
         # Calculate PnL
         if side == 'LONG':
-            pnl = (actual_exit - actual_entry) * quantity
+            gross_pnl = (actual_exit - actual_entry) * quantity
         else:
-            pnl = (actual_entry - actual_exit) * quantity
+            gross_pnl = (actual_entry - actual_exit) * quantity
         
-        pnl_pct = pnl / self.config.initial_capital
+        net_pnl = gross_pnl - transaction_costs
+        pnl_pct = net_pnl / self.config.initial_capital
+        
+        # Debug output for costs
+        print(f"DEBUG COSTS ({side}):")
+        print(f"  Gross PnL: ₹{gross_pnl:,.2f}")
+        print(f"  Transaction Costs: ₹{transaction_costs:,.2f}")
+        print(f"  Net PnL: ₹{net_pnl:,.2f}")
+        print(f"  Cost % of gross: {transaction_costs/abs(gross_pnl)*100 if gross_pnl != 0 else 0:.2f}%")
         
         # Create trade record
         trade = Trade(
@@ -387,7 +534,7 @@ class ORBBacktesterZarattini:
             exit_price=actual_exit,
             quantity=quantity,
             side=side,
-            pnl=pnl,
+            pnl=net_pnl,
             pnl_pct=pnl_pct,
             rv=rv,
             atr=atr,

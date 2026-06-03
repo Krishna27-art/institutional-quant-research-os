@@ -1,15 +1,29 @@
 """
-Risk Management Engine for the quantitative trading system.
-Implements VaR, sector limits, drawdown control, and position sizing.
+Enhanced Institutional Risk Management Engine
+Based on Blueprint V1.0
+
+Implements:
+- VaR (Value at Risk) - Parametric and Historical
+- CVaR (Conditional Value at Risk) - Expected Shortfall
+- Kelly Criterion - Optimal position sizing
+- Volatility Targeting - Dynamic position scaling
+- Risk Parity - Equal risk contribution
+- Stress Testing - Scenario analysis
+- Circuit Breakers - Automatic risk limits
 """
 
 import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
+from datetime import datetime
+import warnings
+warnings.filterwarnings('ignore')
 
 import numpy as np
 import pandas as pd
+from scipy import stats
+from scipy.optimize import minimize
 
 logger = logging.getLogger(__name__)
 
@@ -31,38 +45,74 @@ class RiskCheckResult:
 
 class RiskEngine:
     """
-    Comprehensive risk management engine.
-
+    Enhanced Institutional Risk Management Engine.
+    
     Features:
-    - Portfolio VaR calculation
-    - Position size limits
+    - VaR (Parametric & Historical)
+    - CVaR (Conditional Value at Risk / Expected Shortfall)
+    - Kelly Criterion position sizing
+    - Volatility targeting
+    - Risk parity optimization
+    - Stress testing
+    - Circuit breakers
     - Sector concentration limits
     - Drawdown monitoring
     - Correlation limits
-    - Daily loss limits
-    - Volatility targeting
     """
 
     def __init__(self, config: dict):
         self.config = config
         risk_config = config.get("risk", {})
 
-        self.max_portfolio_var = risk_config.get("max_portfolio_var", 0.02)
+        # VaR limits
+        self.max_portfolio_var_95 = risk_config.get("max_portfolio_var_95", 0.02)
+        self.max_portfolio_var_99 = risk_config.get("max_portfolio_var_99", 0.03)
+        self.max_cvar_95 = risk_config.get("max_cvar_95", 0.025)
+        
+        # Position limits
         self.max_position_size_pct = risk_config.get("max_position_size_pct", 0.05)
+        self.max_gross_exposure = risk_config.get("max_gross_exposure", 3.0)
+        self.max_net_exposure = risk_config.get("max_net_exposure", 1.5)
+        
+        # Volatility targeting
         self.volatility_target = risk_config.get("volatility_target", 0.15)
+        self.max_leverage = risk_config.get("max_leverage", 4.0)
+        
+        # Drawdown limits
         self.max_drawdown = risk_config.get("max_drawdown", 0.10)
+        self.max_daily_drawdown = risk_config.get("max_daily_drawdown", 0.05)
+        self.max_rolling_drawdown_20d = risk_config.get("max_rolling_drawdown_20d", 0.15)
+        
+        # Kelly Criterion
+        self.use_kelly = risk_config.get("use_kelly", True)
+        self.kelly_fraction_cap = risk_config.get("kelly_fraction_cap", 0.25)
+        
+        # Correlation and sector limits
         self.correlation_limit = risk_config.get("correlation_limit", 0.7)
         self.sector_concentration = risk_config.get("sector_concentration", 0.25)
+        self.max_single_symbol = risk_config.get("max_single_symbol", 0.10)
+        
+        # Daily loss limits
         self.daily_loss_limit = risk_config.get("daily_loss_limit", 0.03)
+        self.weekly_loss_limit = risk_config.get("weekly_loss_limit", 0.10)
+        
+        # Circuit breakers
+        self.consecutive_losses_limit = risk_config.get("consecutive_losses_limit", 5)
+        self.consecutive_losses = 0
+        self.weekly_loss = 0.0
 
-        self.portfolio_value = 1_000_000.0  # Default initial capital
+        # Portfolio state
+        self.portfolio_value = risk_config.get("initial_capital", 1_000_000.0)
         self.current_positions: Dict[str, Dict] = {}
         self.daily_pnl = 0.0
         self.peak_equity = self.portfolio_value
         self.current_drawdown = 0.0
 
+        # Historical data for risk calculations
         self._historical_returns: List[float] = []
         self._sector_exposure: Dict[str, float] = {}
+        self._covariance_matrix: Optional[np.ndarray] = None
+        self._asset_returns: Dict[str, List[float]] = {}
 
     def pre_trade_check(
         self,
@@ -179,26 +229,128 @@ class RiskEngine:
 
         return max(adjusted_quantity, 1)  # Minimum 1 share
 
-    def _calculate_portfolio_var(self, confidence_level: float = 0.95) -> float:
+    def _calculate_portfolio_var(self, confidence_level: float = 0.95, method: str = "historical") -> float:
         """
-        Calculate portfolio Value at Risk.
-
+        Calculate portfolio Value at Risk using parametric or historical method.
+        
         Args:
             confidence_level: Confidence level for VaR (e.g., 0.95 for 95% VaR)
-
+            method: "historical" or "parametric"
+            
         Returns:
             Portfolio VaR as percentage of portfolio value
         """
         if not self._historical_returns or len(self._historical_returns) < 20:
             return 0.0
-
-        returns = np.array(self._historical_returns[-252:])  # Last year of returns
+        
+        returns = np.array(self._historical_returns[-252:])
         if len(returns) < 20:
-            returns = self._historical_returns
-
-        # Historical VaR
-        var = np.percentile(returns, (1 - confidence_level) * 100)
-        return abs(var)
+            returns = np.array(self._historical_returns)
+        
+        if method == "historical":
+            # Historical simulation VaR
+            var = np.percentile(returns, (1 - confidence_level) * 100)
+            return abs(var)
+        elif method == "parametric":
+            # Parametric VaR (assuming normal distribution)
+            mean = np.mean(returns)
+            std = np.std(returns)
+            z_score = stats.norm.ppf(1 - confidence_level)
+            var = mean - z_score * std
+            return abs(var)
+        else:
+            return 0.0
+    
+    def calculate_cvar(self, confidence_level: float = 0.95) -> float:
+        """
+        Calculate Conditional Value at Risk (Expected Shortfall).
+        
+        CVaR is the average loss beyond the VaR threshold.
+        
+        Args:
+            confidence_level: Confidence level (e.g., 0.95 for 95% CVaR)
+            
+        Returns:
+            CVaR as percentage of portfolio value
+        """
+        if not self._historical_returns or len(self._historical_returns) < 20:
+            return 0.0
+        
+        returns = np.array(self._historical_returns[-252:])
+        if len(returns) < 20:
+            returns = np.array(self._historical_returns)
+        
+        # Calculate VaR threshold
+        var_threshold = np.percentile(returns, (1 - confidence_level) * 100)
+        
+        # CVaR = average of returns below VaR threshold
+        tail_losses = returns[returns <= var_threshold]
+        
+        if len(tail_losses) == 0:
+            return 0.0
+        
+        cvar = abs(np.mean(tail_losses))
+        return cvar
+    
+    def calculate_kelly_fraction(
+        self,
+        win_prob: float,
+        avg_win: float,
+        avg_loss: float
+    ) -> float:
+        """
+        Calculate Kelly Criterion fraction for optimal position sizing.
+        
+        Kelly Formula: f* = (bp - q) / b
+        where:
+        - b = avg_win / avg_loss (win/loss ratio)
+        - p = win probability
+        - q = 1 - p (loss probability)
+        
+        Args:
+            win_prob: Probability of winning (0 to 1)
+            avg_win: Average win amount
+            avg_loss: Average loss amount (positive)
+            
+        Returns:
+            Kelly fraction (capped at self.kelly_fraction_cap)
+        """
+        if avg_loss == 0:
+            return 0.0
+        
+        win_loss_ratio = avg_win / avg_loss
+        kelly_fraction = (win_prob * win_loss_ratio - (1 - win_prob)) / win_loss_ratio
+        
+        # Cap at configured maximum
+        kelly_fraction = max(0, min(kelly_fraction, self.kelly_fraction_cap))
+        
+        return kelly_fraction
+    
+    def calculate_kelly_from_history(self, returns: List[float]) -> float:
+        """
+        Calculate Kelly fraction from historical returns.
+        
+        Args:
+            returns: List of historical returns
+            
+        Returns:
+            Kelly fraction
+        """
+        if len(returns) < 10:
+            return 0.01  # Conservative default
+        
+        returns_array = np.array(returns)
+        wins = returns_array[returns_array > 0]
+        losses = returns_array[returns_array < 0]
+        
+        if len(wins) == 0 or len(losses) == 0:
+            return 0.01
+        
+        win_prob = len(wins) / len(returns_array)
+        avg_win = np.mean(wins)
+        avg_loss = abs(np.mean(losses))
+        
+        return self.calculate_kelly_fraction(win_prob, avg_win, avg_loss)
 
     def _check_correlation(self, symbol: str, sector: str) -> float:
         """
@@ -279,6 +431,13 @@ class RiskEngine:
 
         # Update daily PnL
         self.daily_pnl += pnl
+        self.weekly_loss += pnl
+
+        # Update consecutive losses counter
+        if pnl < 0:
+            self.consecutive_losses += 1
+        else:
+            self.consecutive_losses = 0
 
         # Update portfolio value
         self.portfolio_value += pnl
@@ -318,16 +477,113 @@ class RiskEngine:
     def reset_daily(self) -> None:
         """Reset daily metrics (called at start of trading day)."""
         self.daily_pnl = 0.0
+    
+    def reset_weekly(self) -> None:
+        """Reset weekly metrics (called at start of trading week)."""
+        self.weekly_loss = 0.0
+        self.consecutive_losses = 0
+    
+    def check_circuit_breakers(self) -> Tuple[bool, str]:
+        """
+        Check if any circuit breakers should be triggered.
+        
+        Returns:
+            (should_halt, reason) tuple
+        """
+        # Consecutive losses
+        if self.consecutive_losses >= self.consecutive_losses_limit:
+            return True, f"Circuit breaker: {self.consecutive_losses} consecutive losses"
+        
+        # Daily loss limit
+        daily_loss_pct = abs(self.daily_pnl) / self.portfolio_value if self.daily_pnl < 0 else 0
+        if daily_loss_pct > self.daily_loss_limit:
+            return True, f"Circuit breaker: Daily loss {daily_loss_pct:.2%} exceeds limit {self.daily_loss_limit:.2%}"
+        
+        # Weekly loss limit
+        weekly_loss_pct = abs(self.weekly_loss) / self.portfolio_value if self.weekly_loss < 0 else 0
+        if weekly_loss_pct > self.weekly_loss_limit:
+            return True, f"Circuit breaker: Weekly loss {weekly_loss_pct:.2%} exceeds limit {self.weekly_loss_limit:.2%}"
+        
+        # Max drawdown
+        if self.current_drawdown > self.max_drawdown:
+            return True, f"Circuit breaker: Drawdown {self.current_drawdown:.2%} exceeds limit {self.max_drawdown:.2%}"
+        
+        return False, ""
+    
+    def stress_test(self, scenarios: Dict[str, float]) -> Dict[str, float]:
+        """
+        Perform stress testing on portfolio.
+        
+        Args:
+            scenarios: Dictionary of scenario_name -> shock_percentage
+                       e.g., {"crash": -0.20, "rally": 0.15}
+                       
+        Returns:
+            Dictionary of scenario_name -> portfolio_value_after_shock
+        """
+        results = {}
+        
+        for scenario_name, shock in scenarios.items():
+            # Apply shock to all positions
+            shocked_value = self.portfolio_value * (1 + shock)
+            results[scenario_name] = shocked_value
+        
+        return results
+    
+    def calculate_risk_parity_weights(self, cov_matrix: np.ndarray) -> np.ndarray:
+        """
+        Calculate risk parity weights (equal risk contribution).
+        
+        Args:
+            cov_matrix: Covariance matrix of asset returns
+            
+        Returns:
+            Array of risk parity weights
+        """
+        n = cov_matrix.shape[0]
+        
+        def risk_parity_objective(weights):
+            """Objective function for risk parity optimization."""
+            portfolio_vol = np.sqrt(weights.T @ cov_matrix @ weights)
+            marginal_contrib = cov_matrix @ weights
+            contrib = weights * marginal_contrib
+            contrib_pct = contrib / portfolio_vol
+            target = 1.0 / n
+            return np.sum((contrib_pct - target) ** 2)
+        
+        # Constraints: weights sum to 1, non-negative
+        constraints = {'type': 'eq', 'fun': lambda w: np.sum(w) - 1}
+        bounds = [(0, 1) for _ in range(n)]
+        
+        # Initial guess: equal weights
+        w0 = np.ones(n) / n
+        
+        result = minimize(
+            risk_parity_objective,
+            w0,
+            method='SLSQP',
+            bounds=bounds,
+            constraints=constraints
+        )
+        
+        return result.x if result.success else w0
 
     def get_risk_report(self) -> Dict:
         """
-        Get comprehensive risk report.
+        Get comprehensive risk report with all enhanced metrics.
 
         Returns:
             Dictionary with all risk metrics
         """
         total_exposure = sum(abs(p["quantity"]) * p["price"] for p in self.current_positions.values())
         gross_exposure = total_exposure / self.portfolio_value if self.portfolio_value > 0 else 0
+        
+        # Calculate net exposure
+        net_exposure = sum(p["quantity"] * p["price"] for p in self.current_positions.values())
+        net_exposure_pct = net_exposure / self.portfolio_value if self.portfolio_value > 0 else 0
+
+        # Circuit breaker check
+        should_halt, halt_reason = self.check_circuit_breakers()
 
         return {
             "portfolio_value": self.portfolio_value,
@@ -335,10 +591,18 @@ class RiskEngine:
             "current_drawdown": self.current_drawdown,
             "daily_pnl": self.daily_pnl,
             "daily_pnl_pct": self.daily_pnl / self.portfolio_value if self.portfolio_value > 0 else 0,
+            "weekly_loss": self.weekly_loss,
+            "weekly_loss_pct": self.weekly_loss / self.portfolio_value if self.portfolio_value > 0 else 0,
             "gross_exposure": gross_exposure,
+            "net_exposure": net_exposure_pct,
             "num_positions": len(self.current_positions),
             "sector_exposure": self._sector_exposure.copy(),
-            "portfolio_var": self._calculate_portfolio_var(),
+            "portfolio_var_95": self._calculate_portfolio_var(0.95),
+            "portfolio_var_99": self._calculate_portfolio_var(0.99),
+            "portfolio_cvar_95": self.calculate_cvar(0.95),
+            "consecutive_losses": self.consecutive_losses,
+            "circuit_breaker_triggered": should_halt,
+            "circuit_breaker_reason": halt_reason,
             "positions": self.current_positions.copy(),
         }
 

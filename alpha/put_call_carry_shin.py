@@ -9,6 +9,10 @@ Key findings from research:
 - Option-implied vs OIS discount factor gap
 - Correlated with VIX (ρ = 0.50)
 
+CRITICAL FIX: Reduced capacity from ₹200Cr to ₹30Cr (realistic for Indian options market).
+Increased carry gap threshold from 20bp to 50bp (only trade when edge is large).
+Reduced position size from 2% to 0.5% (reduce market impact).
+
 Architecture V2 - Quantitative Trading System for Indian Markets
 """
 
@@ -24,8 +28,8 @@ from scipy.stats import norm
 class PCPCarryConfig:
     """Configuration for Put-Call Carry strategy based on Shin methodology"""
     # Carry parameters
-    min_carry_gap_bps: float = 20.0  # Minimum 20bp gap
-    max_carry_gap_bps: float = 50.0  # Maximum 50bp gap (stress)
+    min_carry_gap_bps: float = 50.0  # Minimum 50bp gap (increased from 20bp)
+    max_carry_gap_bps: float = 100.0  # Maximum 100bp gap (stress)
     
     # Option parameters
     min_dte: int = 7  # Minimum days to expiry
@@ -35,15 +39,26 @@ class PCPCarryConfig:
     otm_distance_pct: float = 0.05  # 5% OTM
     
     # Position sizing
-    max_position_pct: float = 0.02  # 2% per position
+    max_position_pct: float = 0.005  # 0.5% per position (reduced from 2%)
     initial_capital: float = 10000000  # ₹1 Crore
     
     # Risk parameters
-    max_loss_pct: float = 0.05  # 5% max loss per position
+    max_loss_pct: float = 0.01  # 1% max loss per position (reduced from 5%)
     path_risk_multiplier: float = 1.5  # GBM path-risk adjustment
     
-    # Slippage (options have wider spreads)
-    slippage_bps: float = 5.0
+    # CRITICAL FIX: Realistic option execution costs
+    # Options have wide bid-ask spreads (typically 5-20% of premium for OTM)
+    bid_ask_spread_pct: float = 0.10  # 10% bid-ask spread (realistic for OTM options)
+    
+    # Indian Transaction Costs for Options (CRITICAL FIX)
+    brokerage_per_order: float = 40.0  # ₹40 per order (higher for options)
+    stt_rate: float = 0.0005  # 0.05% STT on option premium sell side
+    exchange_rate: float = 0.00005  # 0.005% exchange charges
+    sebi_fees_rate: float = 0.000001  # 0.0001% SEBI turnover fee
+    gst_rate: float = 0.18  # 18% GST on brokerage
+    
+    # Capacity
+    capacity_cr: float = 30.0  # ₹30Cr capacity (reduced from ₹200Cr)
 
 
 @dataclass
@@ -129,25 +144,37 @@ class PCPCarryBacktesterShin:
         iv: float,
         days_to_expiry: int,
         option_type: str
-    ) -> float:
-        """Estimate option price using Black-Scholes."""
+    ) -> Tuple[float, float, float]:
+        """
+        Estimate option price using Black-Scholes.
+        
+        CRITICAL FIX: Returns (mid_price, bid_price, ask_price) to simulate bid-ask spread.
+        In real markets, you cannot trade at mid - you pay ask for buys, receive bid for sells.
+        """
         tau = days_to_expiry / 365.0
         
         if tau <= 0:
             intrinsic = max(spot - strike, 0) if option_type == "call" else max(strike - spot, 0)
-            return intrinsic
-        
-        r = 0.05  # Risk-free rate
-        
-        d1 = (np.log(spot / strike) + (r + 0.5 * iv ** 2) * tau) / (iv * np.sqrt(tau))
-        d2 = d1 - iv * np.sqrt(tau)
-        
-        if option_type == "call":
-            price = spot * norm.cdf(d1) - strike * np.exp(-r * tau) * norm.cdf(d2)
+            mid_price = intrinsic
         else:
-            price = strike * np.exp(-r * tau) * norm.cdf(-d2) - spot * norm.cdf(-d1)
+            r = 0.05  # Risk-free rate
+            
+            d1 = (np.log(spot / strike) + (r + 0.5 * iv ** 2) * tau) / (iv * np.sqrt(tau))
+            d2 = d1 - iv * np.sqrt(tau)
+            
+            if option_type == "call":
+                mid_price = spot * norm.cdf(d1) - strike * np.exp(-r * tau) * norm.cdf(d2)
+            else:
+                mid_price = strike * np.exp(-r * tau) * norm.cdf(-d2) - spot * norm.cdf(-d1)
         
-        return max(price, 0.01)
+        mid_price = max(mid_price, 0.01)
+        
+        # CRITICAL FIX: Apply bid-ask spread
+        half_spread = mid_price * self.config.bid_ask_spread_pct / 2
+        bid_price = mid_price - half_spread
+        ask_price = mid_price + half_spread
+        
+        return mid_price, bid_price, ask_price
     
     def select_otm_strikes(
         self,
@@ -266,13 +293,17 @@ class PCPCarryBacktesterShin:
             days_to_expiry
         )
         
-        # Estimate option prices at entry
-        call_price_entry = self.estimate_option_price(
+        # Estimate option prices at entry (CRITICAL FIX: use bid/ask)
+        call_mid_entry, call_bid_entry, call_ask_entry = self.estimate_option_price(
             wednesday_close, call_strike, volatility, days_to_expiry, "call"
         )
-        put_price_entry = self.estimate_option_price(
+        put_mid_entry, put_bid_entry, put_ask_entry = self.estimate_option_price(
             wednesday_close, put_strike, volatility, days_to_expiry, "put"
         )
+        
+        # For short strangle: we sell at bid (receive bid price)
+        call_price_entry = call_bid_entry
+        put_price_entry = put_bid_entry
         
         # Get Thursday data (exit)
         thursday_data = week_data[week_data.index.dayofweek == 3]
@@ -284,13 +315,17 @@ class PCPCarryBacktesterShin:
         # Assume IV at exit (theta decay)
         iv_exit = volatility * 0.8  # IV drops near expiry
         
-        # Estimate option prices at exit
-        call_price_exit = self.estimate_option_price(
+        # Estimate option prices at exit (CRITICAL FIX: use bid/ask)
+        call_mid_exit, call_bid_exit, call_ask_exit = self.estimate_option_price(
             thursday_close, call_strike, iv_exit, 1, "call"
         )
-        put_price_exit = self.estimate_option_price(
+        put_mid_exit, put_bid_exit, put_ask_exit = self.estimate_option_price(
             thursday_close, put_strike, iv_exit, 1, "put"
         )
+        
+        # For short strangle: we buy back at ask (pay ask price)
+        call_price_exit = call_ask_exit
+        put_price_exit = put_ask_exit
         
         # Execute strangle trade
         self._execute_strangle_trade(
@@ -298,6 +333,44 @@ class PCPCarryBacktesterShin:
             put_strike, put_price_entry, put_price_exit,
             carry_gap, volatility, iv_exit, week_start, week_end
         )
+    
+    def _calculate_option_transaction_costs(
+        self,
+        entry_premium: float,
+        exit_premium: float,
+        quantity: int
+    ) -> float:
+        """
+        Calculate Indian transaction costs for options.
+        
+        CRITICAL FIX: This must include all Indian market costs for options:
+        - Brokerage (per order)
+        - STT (sell side only, 0.05% of premium)
+        - Exchange charges (both sides)
+        - SEBI fees (both sides)
+        - GST (on brokerage)
+        """
+        entry_value = entry_premium * quantity
+        exit_value = exit_premium * quantity
+        
+        # Brokerage (per order)
+        brokerage = self.config.brokerage_per_order * 2  # Entry + exit
+        
+        # STT (sell side only, 0.05% of premium)
+        stt = exit_value * self.config.stt_rate
+        
+        # Exchange charges (both sides)
+        exchange_charges = (entry_value + exit_value) * self.config.exchange_rate
+        
+        # SEBI fees (both sides)
+        sebi_fees = (entry_value + exit_value) * self.config.sebi_fees_rate
+        
+        # GST (18% on brokerage)
+        gst = brokerage * self.config.gst_rate
+        
+        total_costs = brokerage + stt + exchange_charges + sebi_fees + gst
+        
+        return total_costs
     
     def _execute_strangle_trade(
         self,
@@ -327,30 +400,44 @@ class PCPCarryBacktesterShin:
         if num_strangles == 0:
             return
         
-        # Apply slippage
-        slippage_pct = self.config.slippage_bps / 10000.0
+        # CRITICAL FIX: No additional slippage - bid/ask already accounts for spread
+        # Call trade (short: sell at bid, buy back at ask)
+        call_gross_pnl = (call_entry - call_exit) * num_strangles
         
-        # Call trade (short)
-        call_actual_entry = call_entry * (1 - slippage_pct)
-        call_actual_exit = call_exit * (1 + slippage_pct)
-        call_pnl = (call_actual_entry - call_actual_exit) * num_strangles
+        # Put trade (short: sell at bid, buy back at ask)
+        put_gross_pnl = (put_entry - put_exit) * num_strangles
         
-        # Put trade (short)
-        put_actual_entry = put_entry * (1 - slippage_pct)
-        put_actual_exit = put_exit * (1 + slippage_pct)
-        put_pnl = (put_actual_entry - put_actual_exit) * num_strangles
+        # Total gross PnL
+        total_gross_pnl = call_gross_pnl + put_gross_pnl
         
-        # Total PnL
-        total_pnl = call_pnl + put_pnl
+        # Calculate transaction costs (CRITICAL FIX)
+        transaction_costs = self._calculate_option_transaction_costs(
+            call_entry + put_entry, call_exit + put_exit, num_strangles
+        )
+        
+        # Net PnL
+        total_pnl = total_gross_pnl - transaction_costs
         total_pnl_pct = total_pnl / self.config.initial_capital
+        
+        # Debug output for costs
+        print(f"DEBUG PUT-CALL CARRY COSTS:")
+        print(f"  Call Entry (bid): ₹{call_entry:.2f}")
+        print(f"  Call Exit (ask): ₹{call_exit:.2f}")
+        print(f"  Put Entry (bid): ₹{put_entry:.2f}")
+        print(f"  Put Exit (ask): ₹{put_exit:.2f}")
+        print(f"  Gross PnL: ₹{total_gross_pnl:,.2f}")
+        print(f"  Transaction Costs: ₹{transaction_costs:,.2f}")
+        print(f"  Net PnL: ₹{total_pnl:,.2f}")
+        print(f"  Cost % of gross: {transaction_costs/abs(total_gross_pnl)*100 if total_gross_pnl != 0 else 0:.2f}%")
+        print(f"  Carry Gap: {carry_gap:.2f} bps")
         
         # Create trade record
         trade = Trade(
             symbol=f"NIFTY_{int(call_strike)}_{int(put_strike)}_STRANGLE",
             entry_time=entry_time,
             exit_time=exit_time,
-            entry_price=call_actual_entry + put_actual_entry,
-            exit_price=call_actual_exit + put_actual_exit,
+            entry_price=call_entry + put_entry,
+            exit_price=call_exit + put_exit,
             quantity=num_strangles,
             side="SHORT",
             pnl=total_pnl,

@@ -18,8 +18,8 @@ from data.nse_adapter import NSELibAdapter
 from data.universe import UniverseRegistry
 from market.state import MarketStateEngine
 from market.smart_money import SmartMoneyStructure
-from research_os.experiment import ExperimentRecord, ExperimentStore
-from research_os.replay import ReplayJournal
+from research.experiment import ExperimentRecord, ExperimentStore
+from research.replay import ReplayJournal
 from signals.gap_fade import GapFadeSignalGenerator
 from signals.validator import SignalValidator
 from stats.leakage import FeatureValidator, LeakageGuard

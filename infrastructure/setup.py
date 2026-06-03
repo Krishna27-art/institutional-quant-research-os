@@ -1,14 +1,14 @@
 """
 Infrastructure Setup Script for Institutional Quant Research OS
 
-This script sets up the complete infrastructure stack for the quant system:
-- ClickHouse: Time-series database for high-performance analytics
-- Kafka: Stream processing for real-time market data
-- Redis: In-memory cache for low-latency feature access
+This script sets up the simplified infrastructure stack for the quant system:
+- ClickHouse: Time-series database for high-performance analytics (single node)
+- Redis: In-memory cache and streaming for low-latency feature access
 - PostgreSQL: Metadata and configuration storage
 
-Based on V4 Blueprint - Institutional Architecture
+Based on Profit-Centric Audit - Simplified Architecture
 Priority: High (Phase 1)
+Removed: Kafka (replaced with Redis Streams), Kubernetes (replaced with Docker Compose)
 """
 
 import subprocess
@@ -41,14 +41,6 @@ class InfrastructureSetup:
                 "user": "default",
                 "password": ""
             },
-            "kafka": {
-                "bootstrap_servers": "localhost:9092",
-                "topics": {
-                    "market_data": "market-data",
-                    "orders": "orders",
-                    "fills": "fills"
-                }
-            },
             "redis": {
                 "host": "localhost",
                 "port": 6379,
@@ -71,7 +63,7 @@ class InfrastructureSetup:
         return default_config
     
     def create_docker_compose(self) -> str:
-        """Create docker-compose.yml for infrastructure."""
+        """Create docker-compose.yml for infrastructure (simplified - no Kafka)."""
         compose_content = """
 version: '3.8'
 
@@ -100,33 +92,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  kafka:
-    image: confluentinc/cp-kafka:latest
-    container_name: quant_kafka
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-    volumes:
-      - kafka_data:/var/lib/kafka/data
-
-  zookeeper:
-    image: confluentinc/cp-zookeeper:latest
-    container_name: quant_zookeeper
-    ports:
-      - "2181:2181"
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    volumes:
-      - zookeeper_data:/var/lib/zookeeper/data
 
   redis:
     image: redis:7-alpine
@@ -162,8 +127,6 @@ services:
 
 volumes:
   clickhouse_data:
-  kafka_data:
-  zookeeper_data:
   redis_data:
   postgres_data:
 """
@@ -603,18 +566,6 @@ SETTINGS index_granularity = 8192;
         except:
             health_status['postgresql'] = False
         
-        # Check Kafka
-        try:
-            from kafka import KafkaProducer
-            kafka_config = self.config['kafka']
-            producer = KafkaProducer(
-                bootstrap_servers=kafka_config['bootstrap_servers']
-            )
-            producer.close()
-            health_status['kafka'] = True
-        except:
-            health_status['kafka'] = False
-        
         return health_status
 
 
@@ -660,10 +611,10 @@ def main():
     print("="*60)
     print("\nServices:")
     print("  - ClickHouse: localhost:8123")
-    print("  - Kafka: localhost:9092")
     print("  - Redis: localhost:6379")
     print("  - PostgreSQL: localhost:5432")
-    print("\nTo stop services: cd infrastructure && docker-compose down")
+    print("\nNote: Kafka removed - using Redis Streams for messaging")
+    print("To stop services: cd infrastructure && docker-compose down")
     print("="*60)
 
 

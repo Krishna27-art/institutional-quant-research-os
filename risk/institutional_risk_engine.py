@@ -10,6 +10,9 @@ Key findings from research:
 - Volatility Targeting
 - Position Limits by sector
 
+CRITICAL FIX: Added tail hedging (buy OTM puts when VIX < 12).
+Protects against tail events when vol is low and about to spike.
+
 Architecture V2 - Quantitative Trading System for Indian Markets
 Phase 1: Simplified stack with conservative risk parameters
 """
@@ -73,6 +76,7 @@ class InstitutionalRiskEngine:
     - 3% daily circuit breaker
     - 8% weekly circuit breaker
     - Max leverage: 4x (warn at 3x, hard stop at 4x)
+    - CRITICAL FIX: Reduced to 1x to test if risk management is the issue
     """
     
     def __init__(
@@ -80,12 +84,14 @@ class InstitutionalRiskEngine:
         capital: float = 2.5e8,  # ₹25 Crore (Architecture V2 target)
         risk_target: float = 0.15,  # 15% annual vol
         var_confidence: float = 0.99,
-        cvar_confidence: float = 0.95
+        cvar_confidence: float = 0.95,
+        max_leverage: float = 1.0  # CRITICAL FIX: Reduced from 4x to 1x to test if risk management is the issue
     ):
         self.capital = capital
         self.risk_target = risk_target
         self.var_confidence = var_confidence
         self.cvar_confidence = cvar_confidence
+        self.max_leverage = max_leverage  # CRITICAL FIX
         
         # Average daily volume for liquidity adjustment (₹)
         self.adv_data = {
@@ -121,6 +127,26 @@ class InstitutionalRiskEngine:
         self.max_daily_loss_pct = 0.03  # 3% daily circuit breaker
         self.max_weekly_loss_pct = 0.08  # 8% weekly circuit breaker
         self.var_cap = 0.02  # VaR cap at 2% of AUM
+        
+        # Tail hedging parameters
+        self.enable_tail_hedging = True
+        self.vix_threshold = 12.0  # Buy OTM puts when VIX < 12
+        self.tail_hedge_pct = 0.01  # 1% of AUM for tail hedge
+        
+        # High VIX stop trading (CRITICAL FIX)
+        self.enable_high_vix_stop = True
+        self.high_vix_threshold = 25.0  # Stop trading when VIX > 25
+        self.high_vix_reduction = 0.25  # Reduce position size to 25% (75% reduction)
+        
+        # Trailing max drawdown limit (CRITICAL FIX)
+        self.enable_trailing_dd_limit = True
+        self.max_dd_from_peak_pct = 0.10  # 10% max drawdown from peak
+        self.current_peak_equity = self.capital
+        self.in_recovery_mode = False
+        
+        # Stop losses (CRITICAL FIX)
+        self.enable_stop_losses = True
+        self.stop_loss_atr_multiplier = 2.0  # 2x ATR from entry
         
         # Circuit breaker state
         self.circuit_breaker_active = False
@@ -269,6 +295,9 @@ class InstitutionalRiskEngine:
         
         Kelly = (p * b - (1-p)) / b
         where b = avg_win / avg_loss (odds)
+        
+        CRITICAL FIX: Use 25% of optimal Kelly (quarter-Kelly) for safety.
+        This prevents over-aggressive position sizing.
         """
         if avg_loss == 0:
             return 0.0
@@ -278,7 +307,10 @@ class InstitutionalRiskEngine:
         
         kelly = (p * b - (1 - p)) / b
         
-        # Cap at 25% (half-Kelly is common)
+        # Use 25% of optimal Kelly (quarter-Kelly) for safety
+        kelly = kelly * 0.25
+        
+        # Cap at 25% absolute maximum
         kelly = min(0.25, max(0, kelly))
         
         return kelly
@@ -350,6 +382,183 @@ class InstitutionalRiskEngine:
         """Calculate tail risk (worst X% of returns)."""
         tail_risk = -self.capital * np.percentile(returns, percentile)
         return tail_risk
+    
+    def should_tail_hedge(self, vix: float) -> Tuple[bool, float]:
+        """
+        Check if tail hedging is needed based on VIX.
+        
+        When VIX is low (< 12), volatility is cheap and tail risk is high.
+        Buy OTM puts to protect against sudden volatility spikes.
+        
+        Args:
+            vix: Current VIX value
+            
+        Returns:
+            Tuple of (should_hedge, hedge_size)
+        """
+        if not self.enable_tail_hedging:
+            return False, 0.0
+        
+        if vix < self.vix_threshold:
+            # VIX is low - buy OTM puts
+            hedge_size = self.capital * self.tail_hedge_pct
+            return True, hedge_size
+        
+        return False, 0.0
+    
+    def get_tail_hedge_signal(self, vix: float, underlying_price: float = 20000) -> Dict:
+        """
+        Generate tail hedge signal when VIX is low.
+        
+        Args:
+            vix: Current VIX value
+            underlying_price: Current NIFTY price (default 20000)
+            
+        Returns:
+            Dictionary with hedge signal details
+        """
+        should_hedge, hedge_size = self.should_tail_hedge(vix)
+        
+        if not should_hedge:
+            return {
+                "should_hedge": False,
+                "reason": f"VIX ({vix:.2f}) above threshold ({self.vix_threshold})"
+            }
+        
+        # Calculate OTM put strike (5% OTM)
+        otm_pct = 0.05
+        put_strike = underlying_price * (1 - otm_pct)
+        
+        # Estimate put premium (rough approximation)
+        # Premium increases as VIX decreases (volatility is cheap)
+        premium = hedge_size * 0.02  # 2% of hedge size as premium
+        
+        return {
+            "should_hedge": True,
+            "reason": f"VIX ({vix:.2f}) below threshold ({self.vix_threshold})",
+            "hedge_size": hedge_size,
+            "hedge_type": "OTM_PUT",
+            "strike": put_strike,
+            "premium": premium,
+            "otm_pct": otm_pct,
+            "underlying_price": underlying_price
+        }
+    
+    def should_stop_trading_high_vix(self, vix: float) -> Tuple[bool, float]:
+        """
+        Check if we should stop trading during high VIX.
+        
+        When VIX > 25, volatility is extreme and models break down.
+        Reduce position size by 75% (keep only 25%).
+        
+        Args:
+            vix: Current VIX value
+            
+        Returns:
+            Tuple of (should_stop, position_multiplier)
+        """
+        if not self.enable_high_vix_stop:
+            return False, 1.0
+        
+        if vix > self.high_vix_threshold:
+            # VIX is extreme - reduce position size
+            return True, self.high_vix_reduction
+        
+        return False, 1.0
+    
+    def check_trailing_drawdown_limit(self, current_equity: float) -> Tuple[bool, float]:
+        """
+        Check if trailing max drawdown limit is breached.
+        
+        CRITICAL FIX: If equity falls 10% from peak, cut all positions and go to cash.
+        Wait for recovery before trading again.
+        
+        Args:
+            current_equity: Current portfolio equity
+            
+        Returns:
+            Tuple of (should_stop, drawdown_pct)
+        """
+        if not self.enable_trailing_dd_limit:
+            return False, 0.0
+        
+        # Update peak equity
+        if current_equity > self.current_peak_equity:
+            self.current_peak_equity = current_equity
+            self.in_recovery_mode = False
+        
+        # Calculate drawdown from peak
+        drawdown_pct = (self.current_peak_equity - current_equity) / self.current_peak_equity
+        
+        if drawdown_pct > self.max_dd_from_peak_pct:
+            # Drawdown exceeded - stop trading
+            self.in_recovery_mode = True
+            return True, drawdown_pct
+        
+        return False, drawdown_pct
+
+    def check_circuit_breaker(self, daily_pnl: float, weekly_pnl: Optional[float] = None) -> Tuple[bool, str]:
+        """
+        Check daily and weekly circuit breaker conditions.
+
+        Returns:
+            Tuple of (triggered, reason)
+        """
+        daily_pnl_pct = daily_pnl / self.capital
+        weekly_pnl_pct = weekly_pnl / self.capital if weekly_pnl is not None else 0.0
+
+        if daily_pnl_pct <= -self.max_daily_loss_pct:
+            self.circuit_breaker_active = True
+            self.circuit_breaker_recovery_days = max(self.circuit_breaker_recovery_days, 1)
+            self.daily_pnl_history.append(daily_pnl_pct)
+            if len(self.daily_pnl_history) > 30:
+                self.daily_pnl_history = self.daily_pnl_history[-30:]
+            return True, f"Daily loss limit breached ({daily_pnl_pct:.2%})"
+
+        if weekly_pnl is not None and weekly_pnl_pct <= -self.max_weekly_loss_pct:
+            self.circuit_breaker_active = True
+            self.circuit_breaker_recovery_days = max(self.circuit_breaker_recovery_days, 3)
+            self.weekly_pnl_history.append(weekly_pnl_pct)
+            if len(self.weekly_pnl_history) > 12:
+                self.weekly_pnl_history = self.weekly_pnl_history[-12:]
+            return True, f"Weekly loss limit breached ({weekly_pnl_pct:.2%})"
+
+        if self.circuit_breaker_active and self.circuit_breaker_recovery_days > 0:
+            self.circuit_breaker_recovery_days -= 1
+            if self.circuit_breaker_recovery_days == 0:
+                self.circuit_breaker_active = False
+
+        return False, ""
+
+    def calculate_stop_loss(
+        self,
+        entry_price: float,
+        atr: float,
+        direction: str = "long"
+    ) -> float:
+        """
+        Calculate stop loss level based on ATR.
+        
+        CRITICAL FIX: Use stop losses at 2x ATR from entry for each position.
+        This prevents catastrophic losses.
+        
+        Args:
+            entry_price: Entry price
+            atr: Average True Range (ATR)
+            direction: "long" or "short"
+            
+        Returns:
+            Stop loss price
+        """
+        if not self.enable_stop_losses:
+            return None
+        
+        stop_distance = atr * self.stop_loss_atr_multiplier
+        
+        if direction == "long":
+            return entry_price - stop_distance
+        else:  # short
+            return entry_price + stop_distance
     
     def calculate_risk_metrics(
         self,

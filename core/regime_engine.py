@@ -339,10 +339,10 @@ class HybridRegimeEngine:
         (Regime.SIDEWAYS_CALM, "choppy_calm"): [
             StrategyType.VWAP_REVERSION
         ],
-        (Regime.SIDEWAYS_VOLATILE, _): [  # Any intraday
+        (Regime.SIDEWAYS_VOLATILE, "_"): [  # Any intraday
             StrategyType.RISK_OFF
         ],
-        (Regime.CRISIS, _): [
+        (Regime.CRISIS, "_"): [
             StrategyType.RISK_OFF
         ],
     }

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .events import Event, EventBus, EventType
-from research_os.replay import ReplayJournal
+from research.replay import ReplayJournal
 
 
 class EventDrivenEngine:

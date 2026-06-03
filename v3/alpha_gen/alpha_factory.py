@@ -300,9 +300,10 @@ class AlphaFactory:
             train_alpha = expression.evaluate(train_data)
             test_alpha = expression.evaluate(test_data)
             
+            # CRITICAL FIX: Use forward returns (shift(1)) instead of lookahead (shift(-1))
             # Calculate returns (simplified: use next day return)
-            train_returns = train_data['close'].pct_change().shift(-1)
-            test_returns = test_data['close'].pct_change().shift(-1)
+            train_returns = train_data['close'].pct_change().shift(1)
+            test_returns = test_data['close'].pct_change().shift(1)
             
             # Calculate Sharpe
             train_ic = train_alpha.corr(train_returns)

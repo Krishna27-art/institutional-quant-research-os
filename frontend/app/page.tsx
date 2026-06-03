@@ -1,6 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import {
+  useMarketData,
+  useRegimeData,
+  useAlphaData,
+  useRiskData,
+  usePortfolioData,
+  useOptionsData,
+  useSignalsData,
+  useAlertsData,
+  useCopilotChat,
+} from '../lib/api/hooks';
 
 export default function Home() {
   const [activeScreen, setActiveScreen] = useState('market');
@@ -14,6 +25,17 @@ export default function Home() {
   const [clock, setClock] = useState('');
   const [refreshSec, setRefreshSec] = useState(0);
   const [replyIdx, setReplyIdx] = useState(0);
+
+  // React Query hooks
+  const { data: marketData, isLoading: marketLoading, error: marketError } = useMarketData();
+  const { data: regimeData, isLoading: regimeLoading } = useRegimeData();
+  const { data: alphaData } = useAlphaData();
+  const { data: riskData } = useRiskData();
+  const { data: portfolioData } = usePortfolioData();
+  const { data: optionsData } = useOptionsData();
+  const { data: signalsData } = useSignalsData();
+  const { data: alertsData } = useAlertsData();
+  const copilotMutation = useCopilotChat();
   
   const copilotReplies = [
     "Analyzing current market conditions... VaR is within safe zone at 2.14%. Regime confidence is strong at 87%.",
@@ -64,10 +86,22 @@ export default function Home() {
     if (!val) return;
     setCopilotMessages(prev => [...prev, { type: 'user', content: val }]);
     setCopilotInput('');
-    setTimeout(() => {
-      setCopilotMessages(prev => [...prev, { type: 'ai', content: copilotReplies[replyIdx % copilotReplies.length] }]);
-      setReplyIdx(prev => prev + 1);
-    }, 800);
+    
+    copilotMutation.mutate(
+      { message: val },
+      {
+        onSuccess: (data) => {
+          setCopilotMessages(prev => [...prev, { type: 'ai', content: data.reply }]);
+        },
+        onError: () => {
+          // Fallback to canned responses if API fails
+          setTimeout(() => {
+            setCopilotMessages(prev => [...prev, { type: 'ai', content: copilotReplies[replyIdx % copilotReplies.length] }]);
+            setReplyIdx(prev => prev + 1);
+          }, 800);
+        },
+      }
+    );
   };
 
   return (
@@ -86,7 +120,9 @@ export default function Home() {
           ))}
         </div>
         <div className="topbar-right">
-          <div className="regime-badge">BULL TREND · HMM-0</div>
+          <div className="regime-badge">
+            {regimeData ? `${regimeData.current_regime.name} · HMM-${regimeData.current_regime.state}` : 'Loading...'}
+          </div>
           <div className="clock">{clock}</div>
         </div>
       </div>
@@ -129,10 +165,50 @@ export default function Home() {
           {activeScreen === 'market' && (
             <div className="screen active">
               <div className="grid-4" style={{marginBottom:'12px'}}>
-                <div className="metric"><div className="metric-label">NIFTY 50</div><div className="metric-val pos">24,550</div><div className="metric-sub">+73.2 · +0.30%</div></div>
-                <div className="metric"><div className="metric-label">BANKNIFTY</div><div className="metric-val pos">52,120</div><div className="metric-sub">+260.5 · +0.50%</div></div>
-                <div className="metric"><div className="metric-label">INDIA VIX</div><div className="metric-val neg">14.20</div><div className="metric-sub">-0.18 · -1.25%</div></div>
-                <div className="metric"><div className="metric-label">USD/INR</div><div className="metric-val">83.47</div><div className="metric-sub">+0.12 · +0.14%</div></div>
+                {marketLoading ? (
+                  <div className="metric"><div className="metric-label">Loading...</div></div>
+                ) : marketError ? (
+                  <div className="metric"><div className="metric-label">Error loading data</div></div>
+                ) : marketData ? (
+                  <>
+                    <div className="metric">
+                      <div className="metric-label">NIFTY 50</div>
+                      <div className={`metric-val ${marketData.nifty.change >= 0 ? 'pos' : 'neg'}`}>
+                        {marketData.nifty.value.toLocaleString()}
+                      </div>
+                      <div className="metric-sub">
+                        {marketData.nifty.change >= 0 ? '+' : ''}{marketData.nifty.change} · {marketData.nifty.change_pct >= 0 ? '+' : ''}{marketData.nifty.change_pct}%
+                      </div>
+                    </div>
+                    <div className="metric">
+                      <div className="metric-label">BANKNIFTY</div>
+                      <div className={`metric-val ${marketData.banknifty.change >= 0 ? 'pos' : 'neg'}`}>
+                        {marketData.banknifty.value.toLocaleString()}
+                      </div>
+                      <div className="metric-sub">
+                        {marketData.banknifty.change >= 0 ? '+' : ''}{marketData.banknifty.change} · {marketData.banknifty.change_pct >= 0 ? '+' : ''}{marketData.banknifty.change_pct}%
+                      </div>
+                    </div>
+                    <div className="metric">
+                      <div className="metric-label">INDIA VIX</div>
+                      <div className={`metric-val ${marketData.vix.change >= 0 ? 'pos' : 'neg'}`}>
+                        {marketData.vix.value.toFixed(2)}
+                      </div>
+                      <div className="metric-sub">
+                        {marketData.vix.change >= 0 ? '+' : ''}{marketData.vix.change} · {marketData.vix.change_pct >= 0 ? '+' : ''}{marketData.vix.change_pct}%
+                      </div>
+                    </div>
+                    <div className="metric">
+                      <div className="metric-label">USD/INR</div>
+                      <div className={`metric-val ${marketData.usdinr.change >= 0 ? 'pos' : 'neg'}`}>
+                        {marketData.usdinr.value.toFixed(2)}
+                      </div>
+                      <div className="metric-sub">
+                        {marketData.usdinr.change >= 0 ? '+' : ''}{marketData.usdinr.change} · {marketData.usdinr.change_pct >= 0 ? '+' : ''}{marketData.usdinr.change_pct}%
+                      </div>
+                    </div>
+                  </>
+                ) : null}
               </div>
               <div className="grid-2" style={{marginBottom:'12px'}}>
                 <div className="card">
@@ -196,10 +272,36 @@ export default function Home() {
           {activeScreen === 'regime' && (
             <div className="screen active">
               <div className="grid-4" style={{marginBottom:'12px'}}>
-                <div className="metric"><div className="metric-label">Current Regime</div><div className="metric-val" style={{color:'var(--green)',fontSize:'14px'}}>BULL TREND</div><div className="metric-sub">HMM State 0 · 87% conf</div></div>
-                <div className="metric"><div className="metric-label">Duration</div><div className="metric-val">34d</div><div className="metric-sub">Avg regime: 28.4d</div></div>
-                <div className="metric"><div className="metric-label">Transition Prob</div><div className="metric-val" style={{color:'var(--amber)'}}>12.3%</div><div className="metric-sub">→ High Vol in 5d</div></div>
-                <div className="metric"><div className="metric-label">Regime Sharpe</div><div className="metric-val pos">2.14</div><div className="metric-sub">vs 0.87 in Bear</div></div>
+                {regimeLoading ? (
+                  <div className="metric"><div className="metric-label">Loading...</div></div>
+                ) : regimeData ? (
+                  <>
+                    <div className="metric">
+                      <div className="metric-label">Current Regime</div>
+                      <div className="metric-val" style={{color:'var(--green)',fontSize:'14px'}}>
+                        {regimeData.current_regime.name}
+                      </div>
+                      <div className="metric-sub">
+                        HMM State {regimeData.current_regime.state} · {regimeData.current_regime.confidence}% conf
+                      </div>
+                    </div>
+                    <div className="metric">
+                      <div className="metric-label">Duration</div>
+                      <div className="metric-val">{regimeData.duration}d</div>
+                      <div className="metric-sub">Avg regime: 28.4d</div>
+                    </div>
+                    <div className="metric">
+                      <div className="metric-label">Transition Prob</div>
+                      <div className="metric-val" style={{color:'var(--amber)'}}>{regimeData.transition_prob}%</div>
+                      <div className="metric-sub">→ High Vol in 5d</div>
+                    </div>
+                    <div className="metric">
+                      <div className="metric-label">Regime Sharpe</div>
+                      <div className="metric-val pos">{regimeData.regime_sharpe}</div>
+                      <div className="metric-sub">vs 0.87 in Bear</div>
+                    </div>
+                  </>
+                ) : null}
               </div>
               <div className="card" style={{marginBottom:'12px'}}>
                 <div className="card-header"><span className="card-title">HMM Regime Timeline (24 months)</span></div>

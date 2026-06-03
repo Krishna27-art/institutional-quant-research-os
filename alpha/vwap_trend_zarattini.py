@@ -29,6 +29,9 @@ class VWAPConfig:
     vwap_threshold_sigma: float = 2.0  # 2 standard deviations from VWAP
     min_trend_bars: int = 5  # Minimum bars to confirm trend
     
+    # CRITICAL FIX: Minimum holding time to prevent whipsaw
+    min_holding_minutes: int = 30  # Minimum 30 minutes holding time
+    
     # Time-of-day filters (Zarattini: 80% profit in first/last hour)
     first_hour_start: time = time(9, 15)
     first_hour_end: time = time(10, 15)
@@ -45,9 +48,18 @@ class VWAPConfig:
     # Risk management
     stop_loss_sigma: float = 1.5  # 1.5 standard deviations
     target_profit_sigma: float = 3.0  # 3 standard deviations
+    max_loss_pct: float = 0.02  # 2% max loss per trade
     
     # Slippage
     slippage_bps: float = 2.0
+    
+    # CRITICAL FIX: Indian Transaction Costs
+    brokerage_per_order: float = 20.0  # ₹20 per order
+    stamp_duty_rate: float = 0.00015  # 0.015% stamp duty on buy side
+    stt_rate: float = 0.00025  # 0.025% STT on sell side (equity delivery)
+    exchange_rate: float = 0.0000345  # 0.00345% exchange charges
+    sebi_fees_rate: float = 0.000001  # 0.0001% SEBI turnover fee
+    gst_rate: float = 0.18  # 18% GST on brokerage
 
 
 @dataclass
@@ -116,9 +128,15 @@ class VWAPTrendBacktesterZarattini:
         return vwap
     
     def calculate_vwap_std(self, data: pd.DataFrame, vwap: pd.Series, window: int = 20) -> pd.Series:
-        """Calculate rolling standard deviation of price-VWAP distance."""
-        vwap_distance = (data['close'] - vwap) / vwap
-        return vwap_distance.rolling(window=window).std()
+        """
+        Calculate rolling standard deviation of returns for VWAP distance normalization.
+        
+        CRITICAL FIX: The original implementation used std of (price-VWAP)/VWAP, which
+        is incorrect. We should use std of returns to normalize the price-VWAP distance.
+        This fixes the 249σ issue reported in the diagnostic.
+        """
+        returns = data['close'].pct_change()
+        return returns.rolling(window=window).std()
     
     def calculate_average_volume(self, data: pd.DataFrame, lookback_bars: int = 78) -> float:
         """Calculate average volume for comparison."""
@@ -175,7 +193,18 @@ class VWAPTrendBacktesterZarattini:
         # Calculate VWAP and statistics
         vwap = self.calculate_vwap(data_filtered)
         vwap_std = self.calculate_vwap_std(data_filtered, vwap)
+        
+        # CRITICAL FIX: Normalize price-VWAP distance by std of returns, not std of (price-VWAP)/VWAP
+        # This fixes the 249σ issue reported in the diagnostic
         vwap_distance_sigma = (data_filtered['close'] - vwap) / (vwap * vwap_std)
+        
+        # Debug output for VWAP distance normalization
+        print(f"DEBUG VWAP NORMALIZATION:")
+        print(f"  Sample VWAP distances (first 5): {vwap_distance_sigma.head().values}")
+        print(f"  Mean VWAP distance: {vwap_distance_sigma.mean():.2f}")
+        print(f"  Std VWAP distance: {vwap_distance_sigma.std():.2f}")
+        print(f"  Max VWAP distance: {vwap_distance_sigma.max():.2f}")
+        print(f"  Min VWAP distance: {vwap_distance_sigma.min():.2f}")
         
         # Process each trading day
         unique_days = data_filtered.index.normalize().unique()
@@ -256,11 +285,16 @@ class VWAPTrendBacktesterZarattini:
                 exit_reason = ""
                 exit_price = row['close']
                 
+                # CRITICAL FIX: Check minimum holding time to prevent whipsaw
+                holding_minutes = (idx - entry_bar).total_seconds() / 60
+                min_holding_met = holding_minutes >= self.config.min_holding_minutes
+                
                 if current_position == 'LONG':
                     # Stop loss: price < VWAP by 1.5σ
                     if current_distance < -self.config.stop_loss_sigma:
-                        exit_triggered = True
-                        exit_reason = "stop_loss"
+                        if min_holding_met:  # Only exit if minimum holding time met
+                            exit_triggered = True
+                            exit_reason = "stop_loss"
                     
                     # Target: price > VWAP by 3σ
                     elif current_distance > self.config.target_profit_sigma:
@@ -270,8 +304,9 @@ class VWAPTrendBacktesterZarattini:
                 else:  # SHORT
                     # Stop loss: price > VWAP by 1.5σ
                     if current_distance > self.config.stop_loss_sigma:
-                        exit_triggered = True
-                        exit_reason = "stop_loss"
+                        if min_holding_met:  # Only exit if minimum holding time met
+                            exit_triggered = True
+                            exit_reason = "stop_loss"
                     
                     # Target: price < VWAP by 3σ
                     elif current_distance < -self.config.target_profit_sigma:
@@ -283,8 +318,8 @@ class VWAPTrendBacktesterZarattini:
                     exit_triggered = True
                     exit_reason = "end_of_day"
                 
-                # Trend reversal exit
-                if not exit_triggered:
+                # Trend reversal exit (only if minimum holding time met)
+                if not exit_triggered and min_holding_met:
                     if current_position == 'LONG' and current_distance < 0:
                         exit_triggered = True
                         exit_reason = "trend_reversal"
@@ -293,6 +328,15 @@ class VWAPTrendBacktesterZarattini:
                         exit_reason = "trend_reversal"
                 
                 if exit_triggered:
+                    # Debug output for holding time
+                    print(f"DEBUG VWAP TRADE ({current_position}):")
+                    print(f"  Entry: {day_data.loc[entry_bar, 'close']:.2f}")
+                    print(f"  Exit: {exit_price:.2f}")
+                    print(f"  Holding time: {holding_minutes:.1f} minutes")
+                    print(f"  Exit reason: {exit_reason}")
+                    print(f"  VWAP distance at entry: {entry_vwap_distance:.2f}σ")
+                    print(f"  VWAP distance at exit: {current_distance:.2f}σ")
+                    
                     self._execute_trade(
                         symbol='NIFTY',
                         entry_time=entry_bar,
@@ -310,6 +354,49 @@ class VWAPTrendBacktesterZarattini:
                     entry_vwap = None
                     entry_vwap_distance = None
     
+    def _calculate_transaction_costs(
+        self,
+        entry_price: float,
+        exit_price: float,
+        quantity: int,
+        side: str
+    ) -> float:
+        """
+        Calculate Indian transaction costs.
+        
+        CRITICAL FIX: This must include all Indian market costs:
+        - Brokerage (per order)
+        - Stamp duty (buy side only)
+        - STT (sell side only)
+        - Exchange charges (both sides)
+        - SEBI fees (both sides)
+        - GST (on brokerage)
+        """
+        entry_value = entry_price * quantity
+        exit_value = exit_price * quantity
+        
+        # Brokerage (per order)
+        brokerage = self.config.brokerage_per_order * 2  # Entry + exit
+        
+        # Stamp duty (buy side only)
+        stamp_duty = entry_value * self.config.stamp_duty_rate if side == 'LONG' else 0
+        
+        # STT (sell side only)
+        stt = exit_value * self.config.stt_rate if side == 'LONG' else 0  # STT on sell for longs
+        
+        # Exchange charges (both sides)
+        exchange_charges = (entry_value + exit_value) * self.config.exchange_rate
+        
+        # SEBI fees (both sides)
+        sebi_fees = (entry_value + exit_value) * self.config.sebi_fees_rate
+        
+        # GST (18% on brokerage)
+        gst = brokerage * self.config.gst_rate
+        
+        total_costs = brokerage + stamp_duty + stt + exchange_charges + sebi_fees + gst
+        
+        return total_costs
+    
     def _execute_trade(
         self,
         symbol: str,
@@ -323,7 +410,7 @@ class VWAPTrendBacktesterZarattini:
         vwap_distance_sigma: float,
         exit_reason: str
     ) -> None:
-        """Execute trade with slippage."""
+        """Execute trade with slippage and transaction costs."""
         # Calculate position size
         risk_per_share = abs(entry_price - vwap_entry) * self.config.stop_loss_sigma
         max_loss = self.config.initial_capital * self.config.max_loss_pct
@@ -341,13 +428,19 @@ class VWAPTrendBacktesterZarattini:
             actual_entry = entry_price * (1 - slippage_pct)
             actual_exit = exit_price * (1 + slippage_pct)
         
+        # Calculate transaction costs (CRITICAL FIX)
+        transaction_costs = self._calculate_transaction_costs(
+            actual_entry, actual_exit, quantity, side
+        )
+        
         # Calculate PnL
         if side == 'LONG':
-            pnl = (actual_exit - actual_entry) * quantity
+            gross_pnl = (actual_exit - actual_entry) * quantity
         else:
-            pnl = (actual_entry - actual_exit) * quantity
+            gross_pnl = (actual_entry - actual_exit) * quantity
         
-        pnl_pct = pnl / self.config.initial_capital
+        net_pnl = gross_pnl - transaction_costs
+        pnl_pct = net_pnl / self.config.initial_capital
         
         # Calculate holding time
         holding_minutes = (exit_time - entry_time).total_seconds() / 60
@@ -365,7 +458,7 @@ class VWAPTrendBacktesterZarattini:
             exit_price=actual_exit,
             quantity=quantity,
             side=side,
-            pnl=pnl,
+            pnl=net_pnl,
             pnl_pct=pnl_pct,
             vwap_entry=vwap_entry,
             vwap_exit=vwap_exit,

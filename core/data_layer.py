@@ -16,7 +16,11 @@ import numpy as np
 import pandas as pd
 import redis
 import yaml
-from arctic import Arctic
+
+try:
+    from arctic import Arctic
+except ImportError:  # pragma: no cover - optional dependency
+    Arctic = None
 
 logger = logging.getLogger(__name__)
 
@@ -403,6 +407,10 @@ class ArcticStore:
     """
 
     def __init__(self, mongo_host: str = "localhost", mongo_port: int = 27017):
+        if Arctic is None:
+            raise ImportError(
+                "arctic is not installed. Install it only when Arctic-backed caching is required."
+            )
         self._arctic = Arctic(f"{mongo_host}:{mongo_port}")
         self._libraries = {}
 
