@@ -1,438 +1,383 @@
 """
-Statistical Arbitrage - Eigen-Portfolio Strategy
+Statistical Arbitrage Strategies
 
-Based on Profit-Centric Audit - High ROI Addition (#2)
-Expected ΔSharpe: +0.25
-Capacity: 10x
-Difficulty: Medium
+Implements institutional-grade statistical arbitrage strategies:
+- PCA-Based Pairs Trading (Avellaneda & Lee 2010)
+- ETF Arbitrage (Marshall et al. 2013)
+- Cross-Asset Arbitrage
 
-Methodology:
-- Use PCA on stock returns to identify eigen-portfolios
-- Trade the first eigen-portfolio (market factor) and residual components
-- Mean reversion on residuals
-- High capacity, uncorrelated with existing alphas
+Based on blueprint specification for multi-strategy framework
 """
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Tuple
+from typing import Tuple, Optional, Dict, List
 from dataclasses import dataclass
-from datetime import datetime
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
+import logging
 
-
-@dataclass
-class StatArbConfig:
-    """Configuration for Statistical Arbitrage"""
-    lookback_days: int = 252  # 1 year for PCA estimation
-    n_components: int = 10  # Number of PCA components
-    entry_threshold: float = 2.0  # Z-score threshold for entry
-    exit_threshold: float = 0.5  # Z-score threshold for exit
-    position_size_pct: float = 0.05  # 5% of AUM per position
-    max_positions: int = 20  # Max number of concurrent positions
-    stop_loss_pct: float = 0.03  # 3% stop loss
-    target_pct: float = 0.02  # 2% target
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class StatArbSignal:
-    """Signal from statistical arbitrage"""
-    symbol: str
-    direction: str  # "long" or "short"
-    z_score: float
-    eigen_component: int
+    """Statistical arbitrage signal"""
+    assets: List[str]
+    signal: np.ndarray  # Vector of signals for each asset
+    z_scores: np.ndarray
     confidence: float
-    entry_price: float
-    stop_loss: float
-    target: float
+    strategy: str
 
 
-@dataclass
-class StatArbPosition:
-    """Position from statistical arbitrage"""
-    symbol: str
-    direction: str
-    quantity: float
-    entry_price: float
-    entry_time: datetime
-    stop_loss: float
-    target: float
-    eigen_component: int
-
-
-class StatisticalArbEngine:
+class PCAStatArb:
     """
-    Statistical Arbitrage Engine using PCA Eigen-Portfolios
+    PCA-Based Statistical Arbitrage (Avellaneda & Lee 2010)
     
-    Methodology:
-    1. Compute returns for all stocks in universe
-    2. Apply PCA to identify eigen-portfolios
-    3. Residualize returns against first eigen-portfolio (market factor)
-    4. Trade residuals when they deviate significantly from mean
-    5. Mean reversion on residuals provides alpha
+    Formula:
+    Compute first K principal components of the return matrix.
+    Residual returns ε = R - βF are mean-reverting.
+    
+    Expected Sharpe: 0.6
+    Capacity: High
+    Best Regime: Correlated markets
+    Failure: Structural breaks
     """
     
-    def __init__(self, config: StatArbConfig):
-        self.config = config
-        
-        # PCA model
-        self.pca = PCA(n_components=config.n_components)
-        self.scaler = StandardScaler()
-        
-        # Eigen-portfolio weights
-        self.eigen_weights: Optional[np.ndarray] = None
-        self.eigen_means: Optional[np.ndarray] = None
-        
-        # Active positions
-        self.positions: Dict[str, StatArbPosition] = {}
-        
-        # Training data
-        self.returns_history: pd.DataFrame = None
-        
-        # Last training date
-        self.last_train_date: Optional[datetime] = None
-    
-    def train(self, returns_data: pd.DataFrame) -> None:
+    def __init__(
+        self,
+        n_components: int = 5,
+        lookback: int = 252,
+        entry_threshold: float = 2.0,
+        exit_threshold: float = 0.5
+    ):
         """
-        Train PCA model on historical returns
+        Initialize PCA statistical arbitrage.
         
         Args:
-            returns_data: DataFrame with symbols as columns, dates as index
+            n_components: Number of principal components
+            lookback: Lookback period for PCA estimation
+            entry_threshold: Z-score threshold for entry
+            exit_threshold: Z-score threshold for exit
         """
-        if len(returns_data) < self.config.lookback_days:
-            print(f"Not enough data: {len(returns_data)} < {self.config.lookback_days}")
+        self.n_components = n_components
+        self.lookback = lookback
+        self.entry_threshold = entry_threshold
+        self.exit_threshold = exit_threshold
+        
+        self.pca = PCA(n_components=n_components)
+        self.betas = None
+        self.residuals_mean = None
+        self.residuals_std = None
+        
+    def fit(self, returns: pd.DataFrame):
+        """
+        Fit PCA model to historical returns.
+        
+        Args:
+            returns: DataFrame of asset returns
+        """
+        # Use lookback period
+        recent_returns = returns.tail(self.lookback).dropna()
+        
+        if len(recent_returns) < self.lookback * 0.8:
+            logger.warning("Insufficient data for PCA fitting")
             return
         
-        # Use lookback window
-        recent_returns = returns_data.tail(self.config.lookback_days)
-        
-        # Standardize returns
-        scaled_returns = self.scaler.fit_transform(recent_returns)
-        
         # Fit PCA
-        self.pca.fit(scaled_returns)
+        factors = self.pca.fit_transform(recent_returns.values)
         
-        # Store eigen-portfolio weights
-        self.eigen_weights = self.pca.components_
+        # Calculate betas (loadings)
+        self.betas = np.linalg.lstsq(factors, recent_returns.values, rcond=None)[0]
         
-        # Store mean returns for each stock
-        self.eigen_means = recent_returns.mean()
+        # Calculate residuals
+        residuals = recent_returns.values - factors @ self.betas
+        self.residuals_mean = residuals.mean(axis=0)
+        self.residuals_std = residuals.std(axis=0)
         
-        # Store training data
-        self.returns_history = returns_data
-        self.last_train_date = datetime.now()
+        logger.info(f"PCA fitted with {self.n_components} components")
         
-        print(f"PCA trained on {len(recent_returns)} days, {self.config.n_components} components")
-        print(f"Explained variance ratio: {self.pca.explained_variance_ratio_[:5]}")
-    
-    def compute_residuals(self, current_returns: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
+    def compute_signal(self, returns: pd.DataFrame) -> StatArbSignal:
         """
-        Compute residuals after removing first eigen-portfolio (market factor)
+        Compute statistical arbitrage signal.
         
         Args:
-            current_returns: Series of current returns for all symbols
+            returns: DataFrame of current returns
             
         Returns:
-            residuals: Residual returns after removing market factor
-            z_scores: Z-scores of residuals
+            StatArbSignal
         """
-        if self.eigen_weights is None:
-            return np.zeros(len(current_returns)), np.zeros(len(current_returns))
+        if self.betas is None:
+            raise ValueError("Model not fitted. Call fit() first.")
         
-        # Standardize current returns
-        scaled_returns = self.scaler.transform(current_returns.values.reshape(1, -1))
+        # Get latest returns
+        latest_returns = returns.iloc[-1:].values
         
-        # Project onto first eigen-portfolio (market factor)
-        market_factor = np.dot(scaled_returns, self.eigen_weights[0])
+        # Transform to factor space
+        factors = self.pca.transform(latest_returns)
         
-        # Residualize: remove market factor
-        residuals = scaled_returns - market_factor * self.eigen_weights[0]
+        # Calculate residuals
+        residuals = latest_returns - factors @ self.betas
         
-        # Compute z-scores of residuals
-        z_scores = (residuals - self.eigen_means.values) / self.eigen_means.values.std()
+        # Calculate z-scores
+        z_scores = (residuals - self.residuals_mean) / (self.residuals_std + 1e-8)
+        z_scores = z_scores.flatten()
         
-        return residuals.flatten(), z_scores.flatten()
+        # Generate signals (short when residual high, long when low)
+        signals = -np.sign(z_scores)
+        
+        # Apply thresholds
+        mask = np.abs(z_scores) > self.entry_threshold
+        signals = signals * mask.astype(float)
+        
+        # Calculate confidence
+        confidence = np.mean(np.abs(z_scores[mask]) / self.entry_threshold) if mask.any() else 0
+        confidence = min(1.0, confidence)
+        
+        return StatArbSignal(
+            assets=list(returns.columns),
+            signal=signals,
+            z_scores=z_scores,
+            confidence=confidence,
+            strategy="PCA_StatArb"
+        )
+
+
+class ETFArbitrage:
+    """
+    ETF Arbitrage (Marshall et al. 2013)
     
-    def generate_signals(self, current_returns: pd.Series) -> List[StatArbSignal]:
+    Formula:
+    Basis = (ETF_price - NAV) / NAV
+    
+    If basis > 2%, short ETF, buy basket
+    If basis < -2%, long ETF, short basket
+    
+    Expected Sharpe: 0.5
+    Capacity: 500 Cr
+    Turnover: 100%/month
+    Best Regime: Positive basis
+    Failure: Negative basis
+    """
+    
+    def __init__(
+        self,
+        entry_threshold: float = 0.02,
+        exit_threshold: float = 0.005
+    ):
         """
-        Generate trading signals based on residual z-scores
+        Initialize ETF arbitrage.
         
         Args:
-            current_returns: Series of current returns for all symbols
+            entry_threshold: Basis threshold for entry (2%)
+            exit_threshold: Basis threshold for exit (0.5%)
+        """
+        self.entry_threshold = entry_threshold
+        self.exit_threshold = exit_threshold
+        
+    def compute_basis(
+        self,
+        etf_price: float,
+        nav: float,
+        basket_prices: np.ndarray,
+        basket_weights: np.ndarray
+    ) -> float:
+        """
+        Calculate ETF basis.
+        
+        Args:
+            etf_price: Current ETF price
+            nav: Net asset value
+            basket_prices: Prices of underlying basket components
+            basket_weights: Weights of basket components
             
         Returns:
-            List of trading signals
+            Basis (ETF price - NAV) / NAV
         """
-        if self.eigen_weights is None:
-            return []
+        # Calculate basket value
+        basket_value = np.sum(basket_prices * basket_weights)
         
-        residuals, z_scores = self.compute_residuals(current_returns)
+        # Calculate basis
+        basis = (etf_price - basket_value) / basket_value
         
-        signals = []
-        
-        for i, (symbol, z_score) in enumerate(zip(current_returns.index, z_scores)):
-            # Skip if already in position
-            if symbol in self.positions:
-                continue
-            
-            # Long signal: residual too negative (undervalued)
-            if z_score < -self.config.entry_threshold:
-                signal = StatArbSignal(
-                    symbol=symbol,
-                    direction="long",
-                    z_score=z_score,
-                    eigen_component=0,
-                    confidence=min(abs(z_score) / self.config.entry_threshold, 1.0),
-                    entry_price=current_returns[symbol],
-                    stop_loss=current_returns[symbol] * (1 - self.config.stop_loss_pct),
-                    target=current_returns[symbol] * (1 + self.config.target_pct)
-                )
-                signals.append(signal)
-            
-            # Short signal: residual too positive (overvalued)
-            elif z_score > self.config.entry_threshold:
-                signal = StatArbSignal(
-                    symbol=symbol,
-                    direction="short",
-                    z_score=z_score,
-                    eigen_component=0,
-                    confidence=min(abs(z_score) / self.config.entry_threshold, 1.0),
-                    entry_price=current_returns[symbol],
-                    stop_loss=current_returns[symbol] * (1 + self.config.stop_loss_pct),
-                    target=current_returns[symbol] * (1 - self.config.target_pct)
-                )
-                signals.append(signal)
-        
-        # Sort by confidence and limit to max positions
-        signals.sort(key=lambda x: x.confidence, reverse=True)
-        return signals[:self.config.max_positions]
+        return basis
     
-    def should_retrain(self, current_date: datetime) -> bool:
-        """Check if PCA should be retrained (weekly)"""
-        if self.last_train_date is None:
-            return True
-        
-        days_since_train = (current_date - self.last_train_date).days
-        return days_since_train >= 7  # Weekly retraining
-    
-    def update_positions(self, current_prices: pd.Series) -> List[str]:
+    def get_signal(
+        self,
+        etf_price: float,
+        nav: float,
+        basket_prices: np.ndarray,
+        basket_weights: np.ndarray
+    ) -> Tuple[float, str]:
         """
-        Update positions based on current prices
+        Get arbitrage signal.
         
         Args:
-            current_prices: Series of current prices for all symbols
+            etf_price: Current ETF price
+            nav: Net asset value
+            basket_prices: Prices of underlying basket components
+            basket_weights: Weights of basket components
             
         Returns:
-            List of symbols to close
+            Tuple of (signal, direction)
+            signal: Position size (-1 to 1)
+            direction: 'SHORT_ETF_LONG_BASKET' or 'LONG_ETF_SHORT_BASKET'
         """
-        to_close = []
+        basis = self.compute_basis(etf_price, nav, basket_prices, basket_weights)
         
-        for symbol, position in list(self.positions.items()):
-            if symbol not in current_prices:
-                to_close.append(symbol)
-                continue
-            
-            current_price = current_prices[symbol]
-            
-            # Check stop loss
-            if position.direction == "long":
-                if current_price < position.stop_loss:
-                    to_close.append(symbol)
-                elif current_price > position.target:
-                    to_close.append(symbol)
-            else:  # short
-                if current_price > position.stop_loss:
-                    to_close.append(symbol)
-                elif current_price < position.target:
-                    to_close.append(symbol)
-        
-        # Close positions
-        for symbol in to_close:
-            del self.positions[symbol]
-        
-        return to_close
-    
-    def get_portfolio_exposure(self) -> Dict[str, float]:
-        """Get current portfolio exposure by symbol"""
-        exposure = {}
-        for symbol, position in self.positions.items():
-            exposure[symbol] = position.quantity * position.entry_price
-        return exposure
-
-
-class PairsTradingEngine:
-    """
-    Pairs Trading Engine using Cointegration
-    
-    Methodology:
-    1. Identify cointegrated pairs of stocks
-    2. Trade the spread when it deviates from mean
-    3. Mean reversion on spread provides alpha
-    """
-    
-    def __init__(self, config: StatArbConfig):
-        self.config = config
-        
-        # Cointegrated pairs
-        self.cointegrated_pairs: List[Tuple[str, str]] = []
-        
-        # Spread statistics
-        self.spread_means: Dict[Tuple[str, str], float] = {}
-        self.spread_stds: Dict[Tuple[str, str], float] = {}
-        
-        # Active positions
-        self.positions: Dict[Tuple[str, str], Dict] = {}
-    
-    def find_cointegrated_pairs(self, returns_data: pd.DataFrame) -> None:
-        """
-        Find cointegrated pairs using Engle-Granger test
-        
-        Args:
-            returns_data: DataFrame with symbols as columns, dates as index
-        """
-        from statsmodels.tsa.stattools import coint
-        
-        symbols = returns_data.columns
-        n_symbols = len(symbols)
-        
-        for i in range(n_symbols):
-            for j in range(i + 1, n_symbols):
-                symbol1, symbol2 = symbols[i], symbols[j]
-                
-                # Skip if insufficient data
-                if returns_data[symbol1].isna().any() or returns_data[symbol2].isna().any():
-                    continue
-                
-                # Engle-Granger test
-                try:
-                    score, pvalue, _ = coint(returns_data[symbol1], returns_data[symbol2])
-                    
-                    # If p-value < 0.05, pairs are cointegrated
-                    if pvalue < 0.05:
-                        self.cointegrated_pairs.append((symbol1, symbol2))
-                        
-                        # Compute spread statistics
-                        spread = returns_data[symbol1] - returns_data[symbol2]
-                        self.spread_means[(symbol1, symbol2)] = spread.mean()
-                        self.spread_stds[(symbol1, symbol2)] = spread.std()
-                except:
-                    continue
-        
-        print(f"Found {len(self.cointegrated_pairs)} cointegrated pairs")
-    
-    def generate_signals(self, current_returns: pd.Series) -> List[Dict]:
-        """
-        Generate trading signals based on spread deviations
-        
-        Args:
-            current_returns: Series of current returns for all symbols
-            
-        Returns:
-            List of trading signals
-        """
-        signals = []
-        
-        for symbol1, symbol2 in self.cointegrated_pairs:
-            if symbol1 not in current_returns or symbol2 not in current_returns:
-                continue
-            
-            # Skip if already in position
-            if (symbol1, symbol2) in self.positions:
-                continue
-            
-            # Compute current spread
-            spread = current_returns[symbol1] - current_returns[symbol2]
-            spread_mean = self.spread_means[(symbol1, symbol2)]
-            spread_std = self.spread_stds[(symbol1, symbol2)]
-            
-            # Compute z-score
-            z_score = (spread - spread_mean) / spread_std if spread_std > 0 else 0
-            
-            # Generate signal if deviation is significant
-            if abs(z_score) > self.config.entry_threshold:
-                direction = "long_spread" if z_score < 0 else "short_spread"
-                
-                signal = {
-                    "pair": (symbol1, symbol2),
-                    "direction": direction,
-                    "z_score": z_score,
-                    "confidence": min(abs(z_score) / self.config.entry_threshold, 1.0)
-                }
-                signals.append(signal)
-        
-        return signals
-
-
-def backtest_stat_arb(
-    returns_data: pd.DataFrame,
-    config: StatArbConfig
-) -> Dict:
-    """
-    Simple backtest for statistical arbitrage
-    
-    Args:
-        returns_data: DataFrame with symbols as columns, dates as index
-        config: Configuration for statistical arbitrage
-        
-    Returns:
-        Dictionary with backtest results
-    """
-    engine = StatisticalArbEngine(config)
-    
-    # Train on first year
-    train_data = returns_data.iloc[:config.lookback_days]
-    engine.train(train_data)
-    
-    # Test on remaining data
-    test_data = returns_data.iloc[config.lookback_days:]
-    
-    # Simulate trading
-    returns = []
-    
-    for date, row in test_data.iterrows():
-        # Generate signals
-        signals = engine.generate_signals(row)
-        
-        # Simple simulation: assume we take all signals
-        if signals:
-            # Compute average return of signals
-            signal_returns = [row[s.symbol] for s in signals if s.symbol in row.index]
-            if signal_returns:
-                returns.append(np.mean(signal_returns))
+        if basis > self.entry_threshold:
+            # ETF overpriced, short ETF, long basket
+            signal = -1.0
+            direction = "SHORT_ETF_LONG_BASKET"
+        elif basis < -self.entry_threshold:
+            # ETF underpriced, long ETF, short basket
+            signal = 1.0
+            direction = "LONG_ETF_SHORT_BASKET"
+        elif abs(basis) < self.exit_threshold:
+            # Close position
+            signal = 0.0
+            direction = "EXIT"
         else:
-            returns.append(0.0)
+            signal = 0.0
+            direction = "HOLD"
+        
+        return signal, direction
+
+
+class CrossAssetArbitrage:
+    """
+    Cross-Asset Arbitrage
     
-    # Compute metrics
-    returns_array = np.array(returns)
+    Trades relationships between different asset classes (e.g., stocks vs futures,
+    spot vs forward, different exchanges).
+    """
     
-    sharpe = np.mean(returns_array) / np.std(returns_array) * np.sqrt(252) if np.std(returns_array) > 0 else 0
+    def __init__(self, lookback: int = 21, entry_threshold: float = 2.0):
+        """
+        Initialize cross-asset arbitrage.
+        
+        Args:
+            lookback: Lookback period for relationship estimation
+            entry_threshold: Z-score threshold for entry
+        """
+        self.lookback = lookback
+        self.entry_threshold = entry_threshold
+        
+    def compute_spread(
+        self,
+        price1: pd.Series,
+        price2: pd.Series,
+        hedge_ratio: Optional[float] = None
+    ) -> pd.Series:
+        """
+        Compute spread between two assets.
+        
+        Args:
+            price1: Price series of asset 1
+            price2: Price series of asset 2
+            hedge_ratio: Optional hedge ratio (if None, estimate via OLS)
+            
+        Returns:
+            Spread series
+        """
+        if hedge_ratio is None:
+            # Estimate hedge ratio via OLS
+            recent_data = pd.DataFrame({'p1': price1, 'p2': price2}).tail(self.lookback).dropna()
+            if len(recent_data) < 10:
+                hedge_ratio = 1.0
+            else:
+                hedge_ratio = np.cov(recent_data['p1'], recent_data['p2'])[0, 1] / np.var(recent_data['p2'])
+        
+        spread = price1 - hedge_ratio * price2
+        return spread
     
-    return {
-        "total_return": np.sum(returns_array),
-        "sharpe_ratio": sharpe,
-        "num_trades": len([r for r in returns if r != 0])
-    }
+    def get_signal(
+        self,
+        spread: pd.Series
+    ) -> Tuple[float, float, str]:
+        """
+        Get arbitrage signal from spread.
+        
+        Args:
+            spread: Spread series
+            
+        Returns:
+            Tuple of (signal, z_score, direction)
+        """
+        # Calculate z-score
+        spread_mean = spread.rolling(self.lookback).mean()
+        spread_std = spread.rolling(self.lookback).std()
+        z_score = (spread - spread_mean) / (spread_std + 1e-8)
+        
+        current_z = z_score.iloc[-1]
+        
+        if current_z > self.entry_threshold:
+            signal = -1.0
+            direction = "SHORT_SPREAD"
+        elif current_z < -self.entry_threshold:
+            signal = 1.0
+            direction = "LONG_SPREAD"
+        else:
+            signal = 0.0
+            direction = "HOLD"
+        
+        return signal, current_z, direction
 
 
 if __name__ == "__main__":
-    # Example usage
-    config = StatArbConfig()
+    # Test statistical arbitrage strategies
+    print("Testing Statistical Arbitrage Strategies...")
     
-    # Generate synthetic returns data for testing
+    # Generate synthetic data
     np.random.seed(42)
-    n_symbols = 50
-    n_days = 500
+    n = 500
+    dates = pd.date_range('2020-01-01', periods=n, freq='D')
     
-    synthetic_returns = pd.DataFrame(
-        np.random.randn(n_days, n_symbols) * 0.01,
-        index=pd.date_range(start="2020-01-01", periods=n_days),
-        columns=[f"STOCK_{i}" for i in range(n_symbols)]
+    # Create correlated returns for PCA
+    n_assets = 10
+    returns = pd.DataFrame(
+        np.random.randn(n, n_assets) * 0.01,
+        index=dates,
+        columns=[f'Asset{i}' for i in range(n_assets)]
     )
     
-    # Add some correlation structure
-    synthetic_returns.iloc[:, :10] += synthetic_returns.iloc[:, 0].values.reshape(-1, 1) * 0.5
+    # Add common factor
+    common_factor = np.random.randn(n) * 0.02
+    for i in range(n_assets):
+        returns.iloc[:, i] += 0.5 * common_factor
     
-    print("Running Statistical Arbitrage Backtest...")
-    results = backtest_stat_arb(synthetic_returns, config)
-    print(f"Results: {results}")
+    # Test PCA Stat Arb
+    print("\n1. PCA Statistical Arbitrage:")
+    pca_arb = PCAStatArb(n_components=3, lookback=252)
+    pca_arb.fit(returns)
+    signal = pca_arb.compute_signal(returns)
+    print(f"   Signal shape: {signal.signal.shape}")
+    print(f"   Non-zero signals: {(signal.signal != 0).sum()}")
+    print(f"   Confidence: {signal.confidence:.3f}")
+    
+    # Test ETF Arbitrage
+    print("\n2. ETF Arbitrage:")
+    etf_arb = ETFArbitrage()
+    etf_price = 100.0
+    nav = 98.0
+    basket_prices = np.array([20, 30, 25, 25])  # Sum = 100
+    basket_weights = np.array([0.2, 0.3, 0.25, 0.25])
+    
+    signal, direction = etf_arb.get_signal(etf_price, nav, basket_prices, basket_weights)
+    basis = etf_arb.compute_basis(etf_price, nav, basket_prices, basket_weights)
+    print(f"   Basis: {basis:.4f}")
+    print(f"   Signal: {signal:.2f}")
+    print(f"   Direction: {direction}")
+    
+    # Test Cross-Asset Arbitrage
+    print("\n3. Cross-Asset Arbitrage:")
+    cross_arb = CrossAssetArbitrage()
+    price1 = pd.Series(100 + np.cumsum(np.random.randn(n) * 0.5), index=dates)
+    price2 = pd.Series(50 + np.cumsum(np.random.randn(n) * 0.3), index=dates)
+    
+    spread = cross_arb.compute_spread(price1, price2)
+    signal, z_score, direction = cross_arb.get_signal(spread)
+    print(f"   Spread z-score: {z_score:.3f}")
+    print(f"   Signal: {signal:.2f}")
+    print(f"   Direction: {direction}")
+    
+    print("\n✓ All statistical arbitrage strategies tested")

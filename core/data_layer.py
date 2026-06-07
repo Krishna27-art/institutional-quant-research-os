@@ -144,7 +144,11 @@ class ZerodhaFeed(DataFeed):
         self.access_token = access_token
         self._kite = None
         self._ws = None
-        self._redis = redis.Redis(host="localhost", port=6379, db=0)
+        self._redis = None
+        try:
+            self._redis = redis.Redis(host="localhost", port=6379, db=0)
+        except Exception as e:
+            logger.warning(f"Redis unavailable for KiteFeed: {e}")
         self._instrument_cache: Dict[str, Instrument] = {}
         self._subscribers = {}
 
@@ -171,7 +175,12 @@ class ZerodhaFeed(DataFeed):
     def _load_instruments(self) -> None:
         """Load and cache all NSE instruments."""
         cache_key = "nse_instruments"
-        cached = self._redis.get(cache_key)
+        cached = None
+        if self._redis is not None:
+            try:
+                cached = self._redis.get(cache_key)
+            except Exception as e:
+                logger.warning(f"Failed to read instruments from cache: {e}")
 
         if cached:
             import pickle
@@ -196,15 +205,19 @@ class ZerodhaFeed(DataFeed):
             )
             self._instrument_cache[instrument.key] = instrument
 
-        import pickle
-        self._redis.setex(
-            cache_key,
-            self.INSTRUMENT_CACHE_TTL,
-            pickle.dumps(self._instrument_cache)
-        )
-        logger.info(
-            f"Cached {len(self._instrument_cache)} NSE instruments"
-        )
+        if self._redis is not None:
+            try:
+                import pickle
+                self._redis.setex(
+                    cache_key,
+                    self.INSTRUMENT_CACHE_TTL,
+                    pickle.dumps(self._instrument_cache)
+                )
+                logger.info(
+                    f"Cached {len(self._instrument_cache)} NSE instruments"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to write instruments to cache: {e}")
 
     async def get_historical(
         self,
@@ -314,7 +327,11 @@ class YahooFeed(DataFeed):
     }
 
     def __init__(self):
-        self._redis = redis.Redis(host="localhost", port=6379, db=0)
+        self._redis = None
+        try:
+            self._redis = redis.Redis(host="localhost", port=6379, db=0)
+        except Exception as e:
+            logger.warning(f"Redis unavailable for YahooFeed: {e}")
 
     async def connect(self) -> None:
         logger.info("Yahoo Finance feed ready (no connection needed)")
@@ -333,40 +350,27 @@ class YahooFeed(DataFeed):
         end: datetime,
         interval: str = "5m"
     ) -> pd.DataFrame:
-        import yfinance as yf
-
-        yahoo_symbol = self._symbol_to_yahoo(instrument)
-        yahoo_interval = self.INTERVAL_MAP.get(interval, "5m")
-
-        # Yahoo limits intraday to last 60 days
-        if "m" in interval:
-            max_start = datetime.now(timezone.utc) - timedelta(days=58)
-            start = max(start, max_start.replace(tzinfo=None))
-
+        clean_sym = instrument.symbol.replace(".NS", "").replace(".BO", "")
         try:
-            ticker = yf.Ticker(yahoo_symbol)
-            df = ticker.history(
-                start=start,
-                end=end,
-                interval=yahoo_interval
-            )
-
-            if df.empty:
-                return df
-
-            df.columns = [c.title() for c in df.columns]
-
-            if "Vwap" not in df.columns:
-                typical = (df["High"] + df["Low"] + df["Close"]) / 3
-                cum_vol = df["Volume"].cumsum()
-                cum_vol_price = (typical * df["Volume"]).cumsum()
-                df["Vwap"] = cum_vol_price / cum_vol.replace(0, np.nan)
-
-            return df
-
-        except Exception as e:
-            logger.error(f"Yahoo fetch failed for {yahoo_symbol}: {e}")
+            from data.truth import get_price_history, NSE_UNIVERSE
+            if clean_sym in NSE_UNIVERSE or f"{clean_sym}.NS" in NSE_UNIVERSE.values():
+                logger.info(f"Redirecting daily fetch for {clean_sym} to truth DB")
+                df_history = get_price_history(clean_sym, days=2000)
+                if not df_history.empty:
+                    df_history.index = pd.DatetimeIndex(df_history["date"])
+                    df_filtered = df_history[(df_history.index >= start) & (df_history.index <= end)].copy()
+                    df_filtered.columns = [c.title() for c in df_filtered.columns]
+                    if "Vwap" not in df_filtered.columns and not df_filtered.empty:
+                        typical = (df_filtered["High"] + df_filtered["Low"] + df_filtered["Close"]) / 3
+                        cum_vol = df_filtered["Volume"].cumsum()
+                        cum_vol_price = (typical * df_filtered["Volume"]).cumsum()
+                        df_filtered["Vwap"] = cum_vol_price / cum_vol.replace(0, np.nan)
+                    return df_filtered
             return pd.DataFrame()
+        except Exception as e:
+            logger.error(f"Truth DB fetch failed in YahooFeed for {clean_sym}: {e}")
+            return pd.DataFrame()
+
 
     async def subscribe(
         self,
@@ -468,12 +472,21 @@ class DataManager:
     def __init__(self, config: dict):
         self.config = config
         self._feeds: Dict[str, DataFeed] = {}
-        self._arctic = ArcticStore()
-        self._redis = redis.Redis(
-            host=config.get("data", {}).get("redis_host", "localhost"),
-            port=config.get("data", {}).get("redis_port", 6379),
-            decode_responses=True
-        )
+        self._arctic = None
+        try:
+            self._arctic = ArcticStore()
+        except (ImportError, Exception) as e:
+            logger.warning(f"ArcticStore unavailable; Arctic caching disabled: {e}")
+
+        self._redis = None
+        try:
+            self._redis = redis.Redis(
+                host=config.get("data", {}).get("redis_host", "localhost"),
+                port=config.get("data", {}).get("redis_port", 6379),
+                decode_responses=True
+            )
+        except Exception as e:
+            logger.warning(f"Redis unavailable: {e}")
         self._instrument_registry: Dict[str, Instrument] = {}
         self._latest_ticks: Dict[str, Tick] = {}
 
@@ -547,7 +560,7 @@ class DataManager:
         instrument = self.get_instrument(symbol)
 
         # 1. Check Arctic
-        if use_cache:
+        if use_cache and self._arctic is not None:
             arctic_data = self._arctic.read(symbol, start, end, f"nse_{interval}")
             if not arctic_data.empty:
                 logger.debug(f"Arctic cache hit for {symbol}")
@@ -564,7 +577,7 @@ class DataManager:
         data = await feed.get_historical(instrument, start, end, interval)
 
         # 3. Cache to Arctic
-        if use_cache and not data.empty:
+        if use_cache and not data.empty and self._arctic is not None:
             self._arctic.write(symbol, data, f"nse_{interval}")
 
         return data
@@ -595,14 +608,15 @@ class DataManager:
             self._latest_ticks[symbol] = tick
 
             # Publish to Redis for other processes
-            import json
-            self._redis.publish(
-                f"ticks:{symbol}",
-                json.dumps({
-                    "ts": tick.timestamp.isoformat(),
-                    "price": tick.last_price,
-                    "vol": tick.last_quantity,
-                    "bid": tick.bid_price,
-                    "ask": tick.ask_price,
-                })
-            )
+            if self._redis is not None:
+                import json
+                self._redis.publish(
+                    f"ticks:{symbol}",
+                    json.dumps({
+                        "ts": tick.timestamp.isoformat(),
+                        "price": tick.last_price,
+                        "vol": tick.last_quantity,
+                        "bid": tick.bid_price,
+                        "ask": tick.ask_price,
+                    })
+                )

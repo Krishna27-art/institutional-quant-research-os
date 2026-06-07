@@ -1,0 +1,269 @@
+# Platform Configuration
+# Institutional Quant Research OS
+
+# Database Configuration
+database:
+  redis:
+    host: localhost
+    port: 6379
+    db: 0
+    password: null
+  
+  postgres:
+    host: localhost
+    port: 5432
+    database: quant_db
+    user: quant_user
+    password: quant_password
+  
+  timescaledb:
+    host: localhost
+    port: 5433
+    database: quant_db
+    user: quant_user
+    password: quant_password
+  
+  clickhouse:
+    host: localhost
+    port: 8123
+    username: default
+    password: ""
+    database: quant_analytics
+
+# Kafka Configuration
+kafka:
+  bootstrap_servers: localhost:9092
+  topics:
+    market_data_tick: market_data.tick
+    market_data_1min: market_data.1min
+    features_raw: features.raw
+    signals_raw: signals.raw
+    signals_combined: signals.combined
+    orders_new: orders.new
+    orders_status: orders.status
+    risk_checks: risk.checks
+    pnl_realized: pnl.realized
+
+# Model Configuration
+model:
+  xgb:
+    n_estimators: 100
+    max_depth: 6
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    reg_alpha: 0.1
+    reg_lambda: 1.0
+  
+  lgb:
+    n_estimators: 150
+    max_depth: 5
+    learning_rate: 0.03
+    subsample: 0.8
+    colsample_bytree: 0.8
+    reg_alpha: 0.1
+    reg_lambda: 1.0
+  
+  ensemble:
+    xgb_weight: 0.6
+    lgb_weight: 0.4
+  
+  retrain_interval_days: 7
+
+# Regime Detection Configuration
+regime:
+  hmm:
+    n_components: 5
+    covariance_type: full
+    n_iter: 100
+    random_state: 42
+  
+  change_point:
+    model: l2
+    min_size: 20
+  
+  garch:
+    p: 1
+    q: 1
+
+# Alpha Configuration
+alpha:
+  enabled_strategies:
+    - time_series_momentum_12_1
+    - dual_momentum
+    - volatility_managed_momentum
+    - sector_momentum
+    - pairs_trading
+    - orb
+    - vwap_reversion
+    - volatility_risk_premium
+    - vix_futures_basis
+    - skew_risk_reversal
+  
+  regime_weights:
+    bull_trend:
+      momentum: 0.50
+      mean_reversion: 0.05
+      volatility: 0.15
+      options: 0.10
+      microstructure: 0.10
+      factor: 0.10
+    bear_trend:
+      momentum: 0.40
+      mean_reversion: 0.10
+      volatility: 0.20
+      options: 0.15
+      microstructure: 0.05
+      factor: 0.10
+    sideways:
+      momentum: 0.10
+      mean_reversion: 0.50
+      volatility: 0.15
+      options: 0.15
+      microstructure: 0.05
+      factor: 0.05
+    high_volatility:
+      momentum: 0.20
+      mean_reversion: 0.10
+      volatility: 0.40
+      options: 0.20
+      microstructure: 0.05
+      factor: 0.05
+    low_volatility:
+      momentum: 0.30
+      mean_reversion: 0.20
+      volatility: 0.10
+      options: 0.10
+      microstructure: 0.20
+      factor: 0.10
+
+# Risk Configuration
+risk:
+  capital: 250000000  # 25 Cr INR
+  
+  limits:
+    max_portfolio_var: 0.02  # 2% of AUM
+    max_gross_exposure: 3.0  # 300% of AUM
+    max_net_exposure: 1.5  # 150% of AUM
+    max_sector_exposure: 0.4  # 40% of AUM
+    max_single_symbol: 0.1  # 10% of AUM
+    max_option_vega: 0.05  # 5% of AUM
+    max_daily_drawdown: 0.05  # 5%
+    max_rolling_drawdown: 0.15  # 15%
+    min_sharpe: 0.5
+  
+  circuit_breaker:
+    max_consecutive_losses: 5
+    max_daily_loss_pct: 0.05
+    max_weekly_loss_pct: 0.10
+  
+  volatility_targeting:
+    target_volatility: 0.15
+    max_leverage: 4.0
+    min_leverage: 0.5
+
+# Execution Configuration
+execution:
+  default_algorithm: adaptive
+  
+  twap:
+    num_slices: 10
+  
+  vwap:
+    lookback_periods: 20
+  
+  pov:
+    participation_rate: 0.1
+  
+  implementation_shortfall:
+    risk_aversion: 0.1
+    temporary_impact: 0.001
+    permanent_impact: 0.0001
+  
+  slippage:
+    fixed_bps: 0.5
+    variable_factor: 0.1
+  
+  market_impact:
+    alpha: 0.5
+    k: 0.1
+
+# Backtesting Configuration
+backtest:
+  initial_capital: 1000000
+  
+  costs:
+    commission_per_trade: 0.03  # 3 paise
+    stt_rate: 0.00025  # 0.025%
+    stamp_duty: 0.00002  # 0.002%
+    sebi_turnover_fee: 0.000001
+  
+  slippage:
+    fixed_bps: 0.5
+    variable_factor: 0.1
+  
+  position_sizing:
+    max_position_pct: 0.05
+    volatility_target: 0.15
+  
+  risk_limits:
+    max_drawdown: 0.15
+    stop_loss_pct: 0.02
+  
+  walk_forward:
+    train_years: 3
+    test_years: 1
+    step_years: 1
+
+# Monitoring Configuration
+monitoring:
+  prometheus:
+    port: 8000
+    metrics_path: /metrics
+  
+  grafana:
+    host: localhost
+    port: 3000
+    username: admin
+    password: admin
+  
+  logging:
+    level: INFO
+    format: json
+
+# Data Configuration
+data:
+  symbols:
+    - NIFTY
+    - BANKNIFTY
+    - RELIANCE
+    - INFY
+    - HDFCBANK
+    - TCS
+    - ICICIBANK
+  
+  data_sources:
+    - nse
+    - kite
+  
+  update_frequency: 1min
+
+# Broker Configuration
+broker:
+  api_key: ${BROKER_API_KEY}
+  api_secret: ${BROKER_API_SECRET}
+  broker: zerodha
+  
+  rate_limits:
+    orders_per_second: 10
+    api_calls_per_minute: 200
+
+# System Configuration
+system:
+  environment: development
+  timezone: Asia/Kolkata
+  log_level: INFO
+  
+  performance:
+    max_workers: 4
+    batch_size: 1000

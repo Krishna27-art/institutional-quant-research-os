@@ -1,6 +1,2 @@
-"""Data acquisition, adjustment, validation, and storage."""
+"""Compatibility package for legacy data imports."""
 
-from .audit import AuditResult, CorporateActionAudit, SurvivorshipAudit
-from .nse_adapter import NSELibAdapter, NSEMarketDataset, NSERequest
-from .source import DataSource, OHLCVColumns
-from .validator import DataQualityReport, DataValidator

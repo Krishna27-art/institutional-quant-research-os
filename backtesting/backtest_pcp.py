@@ -28,6 +28,8 @@ class PCPBacktestConfig:
     otm_distance_pct: float = 0.05  # 5% OTM
     min_days_to_expiry: int = 1
     max_days_to_expiry: int = 3
+    lot_size: int = 50
+    margin_pct_notional: float = 0.15
     
     # Position sizing
     max_position_pct: float = 0.02
@@ -35,6 +37,11 @@ class PCPBacktestConfig:
     
     # Slippage (options have wider spreads)
     slippage_bps: float = 5.0
+    brokerage_per_order: float = 40.0
+    stt_rate: float = 0.0005
+    exchange_rate: float = 0.00005
+    sebi_fees_rate: float = 0.000001
+    gst_rate: float = 0.18
     
     # Risk parameters
     max_loss_pct: float = 0.10  # 10% max loss per position
@@ -50,6 +57,7 @@ class Trade:
     entry_price: float
     exit_price: float
     quantity: int
+    side: str
     pnl: float
     pnl_pct: float
     iv_entry: float
@@ -133,16 +141,6 @@ class PCPBacktester:
     ) -> float:
         """
         Estimate option price using Black-Scholes approximation.
-        
-        Args:
-            spot: Current spot price
-            strike: Strike price
-            iv: Implied volatility
-            days_to_expiry: Days to expiry
-            option_type: "call" or "put"
-            
-        Returns:
-            Estimated option price
         """
         from scipy.stats import norm
         
@@ -165,6 +163,26 @@ class PCPBacktester:
             price = strike * np.exp(-r * T) * norm.cdf(-d2) - spot * norm.cdf(-d1)
         
         return max(price, 0.01)  # Minimum price
+
+    def calculate_option_transaction_costs(
+        self,
+        entry_premium: float,
+        exit_premium: float,
+        quantity: int,
+        side: str,
+    ) -> float:
+        """Calculate option costs for a single leg."""
+        entry_value = entry_premium * quantity
+        exit_value = exit_premium * quantity
+        sell_value = entry_value if side == "SHORT" else exit_value
+        turnover = entry_value + exit_value
+
+        brokerage = self.config.brokerage_per_order * 2
+        stt = sell_value * self.config.stt_rate
+        exchange = turnover * self.config.exchange_rate
+        sebi = turnover * self.config.sebi_fees_rate
+        gst = brokerage * self.config.gst_rate
+        return brokerage + stt + exchange + sebi + gst
     
     def run_backtest(
         self,
@@ -175,15 +193,6 @@ class PCPBacktester:
     ) -> BacktestResult:
         """
         Run Put-Call Carry backtest on historical data.
-        
-        Args:
-            options_data: Dictionary mapping option symbols to OHLCV data
-            underlying_data: DataFrame with underlying (NIFTY) OHLCV data
-            start_date: Start date (YYYY-MM-DD)
-            end_date: End date (YYYY-MM-DD)
-            
-        Returns:
-            BacktestResult with performance metrics
         """
         print(f"Running Put-Call Carry backtest from {start_date} to {end_date}...")
         
@@ -244,7 +253,7 @@ class PCPBacktester:
         # Calculate IV history for percentile
         iv_history = self._get_iv_history(underlying_data, week_start)
         
-        # Assume current IV (in production, would get from options data)
+        # Assume current IV
         current_iv = 0.20  # Placeholder
         
         # Calculate IV percentile
@@ -297,7 +306,7 @@ class PCPBacktester:
         historical_data = data[data.index >= lookback_start]
         historical_data = historical_data[historical_data.index < current_date]
         
-        # Calculate historical IV (simplified - use realized vol as proxy)
+        # Calculate historical IV
         if len(historical_data) < 5:
             return []
         
@@ -325,15 +334,16 @@ class PCPBacktester:
         exit_time: datetime
     ) -> None:
         """Execute strangle trade (sell both call and put)."""
-        # Calculate position size
         position_value = self.config.initial_capital * self.config.max_position_pct
         total_premium = call_entry + put_entry
         
         if total_premium == 0:
             return
         
-        # Number of strangles (each strangle = 1 call + 1 put)
-        num_strangles = int(position_value / total_premium)
+        underlying_ref = (call_strike + put_strike) / 2
+        margin_per_lot = underlying_ref * self.config.lot_size * self.config.margin_pct_notional
+        num_lots = int(position_value / margin_per_lot)
+        num_strangles = num_lots * self.config.lot_size
         
         if num_strangles == 0:
             return
@@ -344,16 +354,21 @@ class PCPBacktester:
         # Call trade (short)
         call_actual_entry = call_entry * (1 - slippage_pct)
         call_actual_exit = call_exit * (1 + slippage_pct)
-        call_pnl = (call_actual_entry - call_actual_exit) * num_strangles
+        call_costs = self.calculate_option_transaction_costs(
+            call_actual_entry, call_actual_exit, num_strangles, side="SHORT"
+        )
+        call_pnl = (call_actual_entry - call_actual_exit) * num_strangles - call_costs
         
         # Put trade (short)
         put_actual_entry = put_entry * (1 - slippage_pct)
         put_actual_exit = put_exit * (1 + slippage_pct)
-        put_pnl = (put_actual_entry - put_actual_exit) * num_strangles
+        put_costs = self.calculate_option_transaction_costs(
+            put_actual_entry, put_actual_exit, num_strangles, side="SHORT"
+        )
+        put_pnl = (put_actual_entry - put_actual_exit) * num_strangles - put_costs
         
         # Total PnL
         total_pnl = call_pnl + put_pnl
-        total_pnl_pct = total_pnl / self.config.initial_capital
         
         # Create trade records
         call_trade = Trade(
@@ -364,6 +379,7 @@ class PCPBacktester:
             entry_price=call_actual_entry,
             exit_price=call_actual_exit,
             quantity=num_strangles,
+            side="SHORT",
             pnl=call_pnl,
             pnl_pct=call_pnl / self.config.initial_capital,
             iv_entry=iv_entry,
@@ -379,6 +395,7 @@ class PCPBacktester:
             entry_price=put_actual_entry,
             exit_price=put_actual_exit,
             quantity=num_strangles,
+            side="SHORT",
             pnl=put_pnl,
             pnl_pct=put_pnl / self.config.initial_capital,
             iv_entry=iv_entry,
@@ -459,61 +476,3 @@ class PCPBacktester:
             avg_iv_entry=0.0,
             trades=[]
         )
-    
-    def print_results(self, result: BacktestResult) -> None:
-        """Print backtest results."""
-        print("\n" + "="*60)
-        print("PUT-CALL CARRY BACKTEST RESULTS")
-        print("="*60)
-        print(f"Total Trades: {result.total_trades}")
-        print(f"Winning Trades: {result.winning_trades}")
-        print(f"Losing Trades: {result.losing_trades}")
-        print(f"Win Rate: {result.win_rate:.2%}")
-        print(f"Total PnL: ₹{result.total_pnl:,.2f}")
-        print(f"Total PnL %: {result.total_pnl_pct:.2%}")
-        print(f"Max Drawdown: {result.max_drawdown_pct:.2%}")
-        print(f"Sharpe Ratio: {result.sharpe_ratio:.2f}")
-        print(f"Profit Factor: {result.profit_factor:.2f}")
-        print(f"Avg Holding: {result.avg_holding_days:.1f} days")
-        print(f"Avg IV Entry: {result.avg_iv_entry:.2%}")
-        print("="*60)
-
-
-def run_sample_backtest():
-    """Run a sample backtest with synthetic data."""
-    config = PCPBacktestConfig(
-        initial_capital=10000000
-    )
-    
-    backtester = PCPBacktester(config)
-    
-    # Create synthetic NIFTY data
-    dates = pd.date_range("2023-01-01", "2023-12-31", freq="D")
-    
-    np.random.seed(42)
-    returns = np.random.normal(0.0005, 0.015, len(dates))
-    prices = 20000 * np.cumprod(1 + returns)
-    
-    underlying_data = pd.DataFrame({
-        'open': prices,
-        'high': prices * 1.01,
-        'low': prices * 0.99,
-        'close': prices,
-        'volume': np.random.randint(1000000, 5000000, len(dates))
-    }, index=dates)
-    
-    # Run backtest
-    result = backtester.run_backtest(
-        {},  # No options data for synthetic test
-        underlying_data,
-        "2023-01-01",
-        "2023-12-31"
-    )
-    
-    backtester.print_results(result)
-    
-    return result
-
-
-if __name__ == "__main__":
-    run_sample_backtest()

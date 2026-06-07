@@ -1,357 +1,469 @@
 """
-Momentum Strategies
+Momentum Alpha Strategies
 
-Based on Comprehensive Upgrade Analysis - Tier 4 Upgrade (#39)
-Expected Sharpe improvement: +0.1–0.2
+This module implements momentum-based alpha strategies including:
+- Time Series Momentum (TSMOM)
+- Dual Momentum
+- Cross-Sectional Momentum
+- Volatility-Managed Momentum
 
-Methodology:
-- Cross-sectional momentum
-- Time-series momentum
-- Factor momentum
-- Risk-adjusted momentum
+Based on Audit Report Priority 2: Alpha Generation
+Research Papers: Moskowitz et al (2012), Jegadeesh & Titman (1993)
 """
 
-import numpy as np
-import pandas as pd
+import logging
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
-from datetime import datetime
-import warnings
+import pandas as pd
+import numpy as np
 
-warnings.filterwarnings('ignore')
+logger = logging.getLogger(__name__)
 
 
 @dataclass
-class MomentumConfig:
-    """Configuration for Momentum Strategies"""
-    # Cross-sectional momentum parameters
-    lookback_period: int = 252  # 1 year lookback
-    holding_period: int = 20  # 1 month holding
-    n_stocks_long: int = 10  # Number of stocks to long
-    n_stocks_short: int = 10  # Number of stocks to short
+class MomentumSignal:
+    """Momentum trading signal."""
+    symbol: str
+    strategy: str
+    signal: float  # -1 to 1
+    confidence: float  # 0 to 1
+    lookback_period: int
+    momentum_score: float
+    volatility: float
+    timestamp: datetime
+    metadata: Dict = None
     
-    # Time-series momentum parameters
-    ts_lookback: int = 126  # 6 months lookback
-    ts_threshold: float = 0.02  # 2% threshold
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
+
+
+class TSMOMStrategy:
+    """
+    Time Series Momentum (TSMOM) Strategy.
     
-    # Risk parameters
-    volatility_adjustment: bool = True  # Adjust for volatility
-    max_position_pct: float = 0.05  # 5% max position per stock
+    Based on Moskowitz et al (2012) - "Time Series Momentum".
+    Goes long on assets with positive past returns, short on negative.
+    """
     
-    # Rebalancing
-    rebalance_frequency: str = "monthly"
+    def __init__(self, lookback_months: int = 12):
+        """
+        Initialize TSMOM strategy.
+        
+        Args:
+            lookback_months: Lookback period in months
+        """
+        self.lookback_months = lookback_months
+        self.lookback_days = lookback_months * 21  # Approx trading days
+        
+        logger.info(f"TSMOMStrategy initialized with {lookback_months} month lookback")
+    
+    def generate_signal(
+        self,
+        data: pd.DataFrame,
+        symbol: str
+    ) -> Optional[MomentumSignal]:
+        """
+        Generate TSMOM signal.
+        
+        Args:
+            data: DataFrame with OHLCV data
+            symbol: Stock symbol
+            
+        Returns:
+            MomentumSignal
+        """
+        if len(data) < self.lookback_days:
+            logger.warning(f"Insufficient data for {symbol}: {len(data)} < {self.lookback_days}")
+            return None
+        
+        # Calculate cumulative return over lookback period
+        recent_data = data.tail(self.lookback_days)
+        returns = recent_data['close'].pct_change().dropna()
+        
+        if len(returns) == 0:
+            return None
+        
+        cumulative_return = (1 + returns).prod() - 1
+        
+        # Calculate momentum score
+        momentum_score = cumulative_return
+        
+        # Calculate volatility
+        volatility = returns.std() * np.sqrt(252)
+        
+        # Generate signal based on momentum
+        if momentum_score > 0:
+            signal = min(1.0, momentum_score * 2)  # Scale to [-1, 1]
+        else:
+            signal = max(-1.0, momentum_score * 2)
+        
+        # Confidence based on momentum magnitude and volatility
+        confidence = min(1.0, abs(momentum_score) / volatility)
+        
+        return MomentumSignal(
+            symbol=symbol,
+            strategy="TSMOM",
+            signal=signal,
+            confidence=confidence,
+            lookback_period=self.lookback_days,
+            momentum_score=momentum_score,
+            volatility=volatility,
+            timestamp=datetime.now(),
+            metadata={
+                'cumulative_return': cumulative_return,
+                'lookback_months': self.lookback_months
+            }
+        )
+
+
+class DualMomentumStrategy:
+    """
+    Dual Momentum Strategy.
+    
+    Combines absolute momentum (TSMOM) with relative momentum
+    against a benchmark (e.g., NIFTY).
+    """
+    
+    def __init__(self, lookback_months: int = 12, benchmark: str = "NIFTY"):
+        """
+        Initialize dual momentum strategy.
+        
+        Args:
+            lookback_months: Lookback period in months
+            benchmark: Benchmark symbol
+        """
+        self.lookback_months = lookback_months
+        self.lookback_days = lookback_months * 21
+        self.benchmark = benchmark
+        
+        logger.info(f"DualMomentumStrategy initialized with {lookback_months} month lookback, benchmark {benchmark}")
+    
+    def generate_signal(
+        self,
+        data: pd.DataFrame,
+        benchmark_data: pd.DataFrame,
+        symbol: str
+    ) -> Optional[MomentumSignal]:
+        """
+        Generate dual momentum signal.
+        
+        Args:
+            data: DataFrame with stock OHLCV data
+            benchmark_data: DataFrame with benchmark OHLCV data
+            symbol: Stock symbol
+            
+        Returns:
+            MomentumSignal
+        """
+        if len(data) < self.lookback_days or len(benchmark_data) < self.lookback_days:
+            return None
+        
+        # Calculate absolute momentum
+        recent_data = data.tail(self.lookback_days)
+        stock_returns = recent_data['close'].pct_change().dropna()
+        stock_momentum = (1 + stock_returns).prod() - 1
+        
+        # Calculate relative momentum vs benchmark
+        recent_bench = benchmark_data.tail(self.lookback_days)
+        bench_returns = recent_bench['close'].pct_change().dropna()
+        bench_momentum = (1 + bench_returns).prod() - 1
+        
+        relative_momentum = stock_momentum - bench_momentum
+        
+        # Calculate volatility
+        volatility = stock_returns.std() * np.sqrt(252)
+        
+        # Generate signal based on dual momentum
+        # Long if both absolute and relative momentum are positive
+        if stock_momentum > 0 and relative_momentum > 0:
+            signal = min(1.0, (stock_momentum + relative_momentum) / 2)
+        elif stock_momentum < 0 and relative_momentum < 0:
+            signal = max(-1.0, (stock_momentum + relative_momentum) / 2)
+        else:
+            signal = 0.0  # Neutral if signals conflict
+        
+        # Confidence based on agreement of signals
+        abs_signal = 1 if stock_momentum > 0 else -1
+        rel_signal = 1 if relative_momentum > 0 else -1
+        agreement = abs_signal == rel_signal
+        confidence = 0.8 if agreement else 0.4
+        
+        return MomentumSignal(
+            symbol=symbol,
+            strategy="DualMomentum",
+            signal=signal,
+            confidence=confidence,
+            lookback_period=self.lookback_days,
+            momentum_score=relative_momentum,
+            volatility=volatility,
+            timestamp=datetime.now(),
+            metadata={
+                'absolute_momentum': stock_momentum,
+                'relative_momentum': relative_momentum,
+                'benchmark_momentum': bench_momentum,
+                'lookback_months': self.lookback_months
+            }
+        )
 
 
 class CrossSectionalMomentum:
     """
-    Cross-Sectional Momentum Strategy
+    Cross-Sectional Momentum Strategy.
     
-    Ranks stocks by past returns and goes long winners,
-    short losers.
+    Ranks stocks based on past returns and goes long on winners,
+    short on losers.
     """
     
-    def __init__(self, config: MomentumConfig):
-        self.config = config
-    
-    def calculate_momentum_scores(self, returns: pd.DataFrame) -> pd.Series:
+    def __init__(self, lookback_months: int = 6, top_pct: float = 0.3, bottom_pct: float = 0.3):
         """
-        Calculate momentum scores for all stocks
+        Initialize cross-sectional momentum strategy.
         
         Args:
-            returns: Asset returns
-            
-        Returns:
-            Momentum scores
+            lookback_months: Lookback period in months
+            top_pct: Top percentage to go long
+            bottom_pct: Bottom percentage to short
         """
-        # Calculate cumulative returns over lookback period
-        cumulative_returns = (1 + returns.tail(self.config.lookback_period)).prod() - 1
+        self.lookback_months = lookback_months
+        self.lookback_days = lookback_months * 21
+        self.top_pct = top_pct
+        self.bottom_pct = bottom_pct
         
-        return cumulative_returns
+        logger.info(f"CrossSectionalMomentum initialized with {lookback_months} month lookback")
     
-    def rank_stocks(self, momentum_scores: pd.Series) -> Tuple[List[str], List[str]]:
+    def generate_signals(
+        self,
+        data_dict: Dict[str, pd.DataFrame]
+    ) -> List[MomentumSignal]:
         """
-        Rank stocks by momentum
+        Generate cross-sectional momentum signals for multiple stocks.
         
         Args:
-            momentum_scores: Momentum scores
+            data_dict: Dictionary mapping symbols to DataFrames
             
         Returns:
-            Tuple of (long_list, short_list)
+            List of MomentumSignals
         """
-        # Sort by momentum
-        sorted_scores = momentum_scores.sort_values(ascending=False)
+        momentum_scores = {}
         
-        # Select top and bottom
-        long_stocks = sorted_scores.head(self.config.n_stocks_long).index.tolist()
-        short_stocks = sorted_scores.tail(self.config.n_stocks_short).index.tolist()
+        # Calculate momentum for each stock
+        for symbol, data in data_dict.items():
+            if len(data) < self.lookback_days:
+                continue
+            
+            recent_data = data.tail(self.lookback_days)
+            returns = recent_data['close'].pct_change().dropna()
+            
+            if len(returns) == 0:
+                continue
+            
+            momentum = (1 + returns).prod() - 1
+            volatility = returns.std() * np.sqrt(252)
+            
+            momentum_scores[symbol] = {
+                'momentum': momentum,
+                'volatility': volatility
+            }
         
-        return long_stocks, short_stocks
-    
-    def calculate_positions(self, long_stocks: List[str], short_stocks: List[str], 
-                          returns: pd.DataFrame) -> Dict[str, float]:
-        """
-        Calculate positions from momentum ranking
+        if not momentum_scores:
+            return []
         
-        Args:
-            long_stocks: Stocks to long
-            short_stocks: Stocks to short
-            returns: Asset returns
-            
-        Returns:
-            Dictionary of asset -> position
-        """
-        positions = {}
+        # Rank by momentum
+        sorted_symbols = sorted(momentum_scores.keys(), 
+                              key=lambda s: momentum_scores[s]['momentum'])
         
-        # Calculate volatility-adjusted weights
-        if self.config.volatility_adjustment:
-            vol = returns.tail(20).std()
-            inv_vol = 1 / (vol + 1e-8)
-            
-            # Normalize
-            inv_vol = inv_vol / inv_vol.sum()
-            
-            for stock in long_stocks:
-                positions[stock] = inv_vol[stock] * self.config.max_position_pct
-            
-            for stock in short_stocks:
-                positions[stock] = -inv_vol[stock] * self.config.max_position_pct
-        else:
-            # Equal weights
-            long_weight = self.config.max_position_pct / len(long_stocks)
-            short_weight = self.config.max_position_pct / len(short_stocks)
-            
-            for stock in long_stocks:
-                positions[stock] = long_weight
-            
-            for stock in short_stocks:
-                positions[stock] = -short_weight
+        n = len(sorted_symbols)
+        top_n = int(n * self.top_pct)
+        bottom_n = int(n * self.bottom_pct)
         
-        return positions
-
-
-class TimeSeriesMomentum:
-    """
-    Time-Series Momentum Strategy
-    
-    Goes long assets with positive past returns,
-    short assets with negative past returns.
-    """
-    
-    def __init__(self, config: MomentumConfig):
-        self.config = config
-    
-    def calculate_ts_momentum(self, returns: pd.Series) -> float:
-        """
-        Calculate time-series momentum score
+        signals = []
         
-        Args:
-            returns: Asset returns
+        # Generate signals
+        for i, symbol in enumerate(sorted_symbols):
+            score = momentum_scores[symbol]
             
-        Returns:
-            Momentum score
-        """
-        cumulative_return = (1 + returns.tail(self.config.ts_lookback)).prod() - 1
-        return cumulative_return
-    
-    def generate_signal(self, returns: pd.DataFrame) -> Dict[str, str]:
-        """
-        Generate time-series momentum signals
-        
-        Args:
-            returns: Asset returns
-            
-        Returns:
-            Dictionary of asset -> signal
-        """
-        signals = {}
-        
-        for asset in returns.columns:
-            momentum = self.calculate_ts_momentum(returns[asset])
-            
-            if momentum > self.config.ts_threshold:
-                signals[asset] = "long"
-            elif momentum < -self.config.ts_threshold:
-                signals[asset] = "short"
+            if i < bottom_n:
+                # Bottom performers - short
+                signal = -1.0
+                confidence = 0.7
+            elif i >= n - top_n:
+                # Top performers - long
+                signal = 1.0
+                confidence = 0.7
             else:
-                signals[asset] = "hold"
+                # Middle - neutral
+                signal = 0.0
+                confidence = 0.3
+            
+            signals.append(MomentumSignal(
+                symbol=symbol,
+                strategy="CrossSectionalMomentum",
+                signal=signal,
+                confidence=confidence,
+                lookback_period=self.lookback_days,
+                momentum_score=score['momentum'],
+                volatility=score['volatility'],
+                timestamp=datetime.now(),
+                metadata={
+                    'rank': i + 1,
+                    'total_stocks': n,
+                    'percentile': i / n
+                }
+            ))
         
         return signals
 
 
-class MomentumStrategy:
+class VolatilityManagedMomentum:
     """
-    Combined Momentum Strategy
+    Volatility-Managed Momentum Strategy.
     
-    Combines cross-sectional and time-series momentum
-    for robust performance.
-    
-    Expected Sharpe improvement: +0.1–0.2
+    Scales position sizes based on volatility to improve risk-adjusted returns.
     """
     
-    def __init__(self, config: MomentumConfig):
-        self.config = config
-        
-        self.cs_momentum = CrossSectionalMomentum(config)
-        self.ts_momentum = TimeSeriesMomentum(config)
-        
-        # Current positions
-        self.positions: Dict[str, float] = {}
-    
-    def generate_signals(self, returns: pd.DataFrame) -> Dict[str, str]:
+    def __init__(self, lookback_months: int = 12, target_vol: float = 0.15):
         """
-        Generate combined momentum signals
+        Initialize volatility-managed momentum strategy.
         
         Args:
-            returns: Asset returns
-            
-        Returns:
-            Dictionary of asset -> signal
+            lookback_months: Lookback period in months
+            target_vol: Target annualized volatility
         """
-        # Get cross-sectional signals
-        momentum_scores = self.cs_momentum.calculate_momentum_scores(returns)
-        long_stocks, short_stocks = self.cs_momentum.rank_stocks(momentum_scores)
+        self.lookback_months = lookback_months
+        self.lookback_days = lookback_months * 21
+        self.target_vol = target_vol
         
-        # Get time-series signals
-        ts_signals = self.ts_momentum.generate_signal(returns)
-        
-        # Combine signals
-        combined_signals = {}
-        
-        for asset in returns.columns:
-            if asset in long_stocks and ts_signals.get(asset) == "long":
-                combined_signals[asset] = "strong_long"
-            elif asset in long_stocks:
-                combined_signals[asset] = "long"
-            elif asset in short_stocks and ts_signals.get(asset) == "short":
-                combined_signals[asset] = "strong_short"
-            elif asset in short_stocks:
-                combined_signals[asset] = "short"
-            else:
-                combined_signals[asset] = "hold"
-        
-        return combined_signals
+        logger.info(f"VolatilityManagedMomentum initialized with {lookback_months} month lookback")
     
-    def calculate_positions(self, returns: pd.DataFrame) -> Dict[str, float]:
+    def generate_signal(
+        self,
+        data: pd.DataFrame,
+        symbol: str
+    ) -> Optional[MomentumSignal]:
         """
-        Calculate positions from signals
+        Generate volatility-managed momentum signal.
         
         Args:
-            returns: Asset returns
+            data: DataFrame with OHLCV data
+            symbol: Stock symbol
             
         Returns:
-            Dictionary of asset -> position
+            MomentumSignal
         """
-        # Get cross-sectional positions
-        momentum_scores = self.cs_momentum.calculate_momentum_scores(returns)
-        long_stocks, short_stocks = self.cs_momentum.rank_stocks(momentum_scores)
+        if len(data) < self.lookback_days:
+            return None
         
-        positions = self.cs_momentum.calculate_positions(long_stocks, short_stocks, returns)
+        # Calculate momentum
+        recent_data = data.tail(self.lookback_days)
+        returns = recent_data['close'].pct_change().dropna()
         
-        self.positions = positions
-        return positions
-    
-    def backtest(self, returns: pd.DataFrame) -> pd.Series:
-        """
-        Backtest momentum strategy
+        if len(returns) == 0:
+            return None
         
-        Args:
-            returns: Asset returns
-            
-        Returns:
-            Strategy returns
-        """
-        strategy_returns = []
+        momentum = (1 + returns).prod() - 1
+        volatility = returns.std() * np.sqrt(252)
         
-        for i in range(self.config.lookback_period, len(returns)):
-            window_returns = returns.iloc[i-self.config.lookback_period:i]
-            
-            # Calculate positions
-            positions = self.calculate_positions(window_returns)
-            
-            # Calculate return for next period
-            next_return = returns.iloc[i]
-            strategy_return = sum(positions.get(asset, 0) * next_return[asset] 
-                                for asset in positions.keys())
-            
-            strategy_returns.append(strategy_return)
+        # Scale signal by volatility
+        vol_scaling = self.target_vol / volatility if volatility > 0 else 1.0
+        vol_scaling = min(2.0, max(0.5, vol_scaling))  # Clamp scaling
         
-        return pd.Series(strategy_returns, index=returns.index[self.config.lookback_period:])
-    
-    def get_performance_metrics(self, strategy_returns: pd.Series) -> Dict:
-        """Get performance metrics"""
-        if len(strategy_returns) == 0:
-            return {}
-        
-        total_return = (1 + strategy_returns).prod() - 1
-        sharpe = strategy_returns.mean() / (strategy_returns.std() + 1e-8) * np.sqrt(252)
-        
-        # Drawdown
-        cum_returns = np.cumprod(1 + strategy_returns)
-        running_max = np.maximum.accumulate(cum_returns)
-        drawdown = (cum_returns - running_max) / running_max
-        max_drawdown = drawdown.min()
-        
-        return {
-            "total_return": total_return,
-            "sharpe_ratio": sharpe,
-            "max_drawdown": max_drawdown,
-            "calmar_ratio": total_return / abs(max_drawdown) if max_drawdown != 0 else 0
-        }
-
-
-def simulate_momentum_data(n_assets: int = 50, n_days: int = 500) -> pd.DataFrame:
-    """Simulate momentum data for testing"""
-    np.random.seed(42)
-    
-    # Generate assets with different momentum characteristics
-    asset_names = [f"ASSET_{i}" for i in range(n_assets)]
-    dates = pd.date_range(start="2023-01-01", periods=n_days)
-    
-    returns = pd.DataFrame(index=dates, columns=asset_names)
-    
-    for i in range(n_assets):
-        # Some assets have positive momentum, some negative
-        if i < 25:
-            drift = 0.0002  # Positive drift
+        if momentum > 0:
+            signal = min(1.0, momentum * vol_scaling)
         else:
-            drift = -0.0001  # Negative drift
+            signal = max(-1.0, momentum * vol_scaling)
         
-        asset_returns = np.random.randn(n_days) * 0.02 + drift
-        returns[asset_names[i]] = asset_returns
+        confidence = min(1.0, abs(momentum) / volatility)
+        
+        return MomentumSignal(
+            symbol=symbol,
+            strategy="VolatilityManagedMomentum",
+            signal=signal,
+            confidence=confidence,
+            lookback_period=self.lookback_days,
+            momentum_score=momentum,
+            volatility=volatility,
+            timestamp=datetime.now(),
+            metadata={
+                'volatility_scaling': vol_scaling,
+                'target_volatility': self.target_vol,
+                'lookback_months': self.lookback_months
+            }
+        )
+
+
+def get_momentum_signals(
+    data_dict: Dict[str, pd.DataFrame],
+    strategies: List[str] = None
+) -> Dict[str, List[MomentumSignal]]:
+    """
+    Generate momentum signals using multiple strategies.
     
-    return returns
+    Args:
+        data_dict: Dictionary mapping symbols to DataFrames
+        strategies: List of strategy names to use
+        
+    Returns:
+        Dictionary mapping strategy names to signal lists
+    """
+    if strategies is None:
+        strategies = ["TSMOM", "DualMomentum", "CrossSectionalMomentum", "VolatilityManagedMomentum"]
+    
+    results = {}
+    
+    # TSMOM
+    if "TSMOM" in strategies:
+        tsmon = TSMOMStrategy(lookback_months=12)
+        tsmon_signals = []
+        for symbol, data in data_dict.items():
+            signal = tsmon.generate_signal(data, symbol)
+            if signal:
+                tsmon_signals.append(signal)
+        results["TSMOM"] = tsmon_signals
+    
+    # Cross-Sectional Momentum
+    if "CrossSectionalMomentum" in strategies:
+        csm = CrossSectionalMomentum(lookback_months=6)
+        results["CrossSectionalMomentum"] = csm.generate_signals(data_dict)
+    
+    # Volatility-Managed Momentum
+    if "VolatilityManagedMomentum" in strategies:
+        vmm = VolatilityManagedMomentum(lookback_months=12)
+        vmm_signals = []
+        for symbol, data in data_dict.items():
+            signal = vmm.generate_signal(data, symbol)
+            if signal:
+                vmm_signals.append(signal)
+        results["VolatilityManagedMomentum"] = vmm_signals
+    
+    return results
 
 
 if __name__ == "__main__":
-    # Example usage
-    config = MomentumConfig(
-        lookback_period=252,
-        holding_period=20,
-        n_stocks_long=10,
-        n_stocks_short=10,
-        volatility_adjustment=True
-    )
+    # Test momentum strategies
+    print("Testing Momentum Strategies...")
     
-    strategy = MomentumStrategy(config)
+    # Create sample data
+    dates = pd.date_range(start='2023-01-01', periods=300, freq='1D')
+    np.random.seed(42)
     
-    # Simulate data
-    print("Simulating momentum data...")
-    returns = simulate_momentum_data(50, 500)
+    data_dict = {
+        'RELIANCE': pd.DataFrame({
+            'close': np.cumprod(1 + np.random.normal(0.001, 0.02, 300)) * 1000
+        }, index=dates),
+        'TCS': pd.DataFrame({
+            'close': np.cumprod(1 + np.random.normal(0.0015, 0.018, 300)) * 3000
+        }, index=dates),
+        'HDFCBANK': pd.DataFrame({
+            'close': np.cumprod(1 + np.random.normal(0.0008, 0.022, 300)) * 1500
+        }, index=dates)
+    }
     
-    # Backtest
-    print("\nBacktesting momentum strategy...")
-    strategy_returns = strategy.backtest(returns)
+    # Generate signals
+    signals = get_momentum_signals(data_dict)
     
-    # Performance metrics
-    print("\nPerformance Metrics:")
-    metrics = strategy.get_performance_metrics(strategy_returns)
-    for key, value in metrics.items():
-        print(f"  {key}: {value:.4f}")
-    
-    # Current signals
-    print("\nCurrent Signals:")
-    signals = strategy.generate_signals(returns)
-    active_signals = {k: v for k, v in signals.items() if v != "hold"}
-    print(f"  Active signals: {len(active_signals)}")
-    for asset, signal in list(active_signals.items())[:5]:
-        print(f"    {asset}: {signal}")
+    print(f"\nGenerated signals:")
+    for strategy, signal_list in signals.items():
+        print(f"  {strategy}: {len(signal_list)} signals")
+        for signal in signal_list[:3]:
+            print(f"    {signal.symbol}: {signal.signal:.3f} (confidence: {signal.confidence:.2f})")

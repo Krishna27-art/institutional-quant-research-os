@@ -1,0 +1,78 @@
+system:
+  name: "NiftyQuant"
+  mode: "paper"  # paper | live | backtest
+  log_level: "INFO"
+  initial_capital: 25000000  # ₹2.5 Crore (CRITICAL FIX: Added missing parameter)
+
+market:
+  exchange: "NSE"
+  indices:
+    - "NIFTY"
+    - "BANKNIFTY"
+  trading_start: "09:15:00"
+  trading_end: "15:30:00"
+  orb_time: "09:20:00"        # 5-min opening range
+  settlement: "T+1"
+
+data:
+  mode: "live"          # options: "historical", "live", "paper"
+  source: "nse"
+  data_dir: "/data/nse_bars"
+  symbols_file: "/data/nifty500_constituents.csv"
+  live_websocket: "wss://ws.kite.trade"
+  api_key_env: "KITE_API_KEY"
+
+regime:
+  hmm_components: 3            # Bull, Bear, Sideways
+  hmm_lookback: 252           # 1 year of daily data
+  vvg_gap_threshold: 0.005
+  vvg_volume_percentile: 70
+  vvg_volatility_percentile: 60
+
+alpha:
+  orb:
+    enabled: true
+    range_minutes: 5
+    top_n_stocks: 20
+    rel_volume_threshold: 2.5
+    atr_period: 14
+    stop_atr_multiplier: 1.5
+    max_positions: 5
+  vwap:
+    enabled: true
+    distance_threshold: 0.003
+    reversion_window: 20
+    trend_window: 60
+    max_deviation: 0.015
+  chaotic_gcn:
+    enabled: false
+    sectors: 12
+    chaotic_map: "logistic"     # logistic | tent
+    logistic_r: 3.99
+    tent_mu: 0.5
+    gcn_layers: 2
+    hidden_dim: 64
+    dropout: 0.3
+    retrain_frequency: "1W"
+  game_theoretic:
+    enabled: false
+    hot_money_window: 5
+    institutional_window: 20
+    equilibrium_tolerance: 0.01
+
+risk:
+  max_portfolio_var: 0.02
+  max_position_size_pct: 0.05
+  volatility_target: 0.15
+  max_drawdown: 0.10
+  correlation_limit: 0.7
+  sector_concentration: 0.25
+  daily_loss_limit: 0.03
+
+execution:
+  engine: "python"             # cpp | python
+  order_type: "adaptive_vwap"
+  slippage_budget: 0.0005
+  participation_rate: 0.10
+  max_child_orders: 10
+  min_fill_size: 50
