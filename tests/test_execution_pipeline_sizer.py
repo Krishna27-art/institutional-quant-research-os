@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import Dict, Any
 from execution.unified_execution_engine import ExecutionPipeline, UnifiedExecutionEngine, ExecutionMode
 from execution.adapters.backtest_adapter import BacktestConfig
-from portfolio.allocator import PortfolioAllocator
-from risk.institutional_risk_engine import InstitutionalRiskEngine
+from src.portfolio.engine import PortfolioAllocator
+from src.risk.institutional_risk_engine import InstitutionalRiskEngine
 
 
 def test_execution_pipeline_sizer_and_risk_gates():

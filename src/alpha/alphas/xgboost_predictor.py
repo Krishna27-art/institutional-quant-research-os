@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 # Import prediction registry for logging
 try:
-    from models.prediction_registry import get_prediction_registry
+    from src.alpha.prediction_registry import get_prediction_registry
     prediction_registry = get_prediction_registry()
 except ImportError:
     prediction_registry = None

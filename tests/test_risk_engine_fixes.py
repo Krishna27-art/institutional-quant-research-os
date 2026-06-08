@@ -10,7 +10,7 @@ import pandas as pd
 import sys
 sys.path.append('/Users/pandu/Desktop/institutional-quant-research-os')
 
-from risk.institutional_risk_engine import InstitutionalRiskEngine, Position
+from src.risk.institutional_risk_engine import InstitutionalRiskEngine, Position
 
 
 def test_risk_calculations():

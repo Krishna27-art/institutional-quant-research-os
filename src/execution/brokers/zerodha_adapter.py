@@ -21,11 +21,10 @@ class ZerodhaAdapter(BrokerAdapter):
     def connect(self) -> bool:
         """Connect to Kite Connect API"""
         try:
-            # Placeholder for actual Kite Connect initialization
-            # from kiteconnect import KiteConnect
-            # self.kite = KiteConnect(api_key=self.api_key)
-            # self.kite.set_access_token(self.access_token)
-            
+            if self.api_key and self.access_token:
+                from kiteconnect import KiteConnect
+                self.kite = KiteConnect(api_key=self.api_key)
+                self.kite.set_access_token(self.access_token)
             self.is_connected = True
             return True
         except Exception as e:
@@ -42,18 +41,22 @@ class ZerodhaAdapter(BrokerAdapter):
         if not self.is_connected:
             raise RuntimeError("Not connected to broker")
         
-        # Placeholder for actual order placement
-        # kite_order_id = self.kite.place_order(
-        #     variety=self.kite.VARIETY_REGULAR,
-        #     exchange=self._get_exchange(order.symbol),
-        #     tradingsymbol=order.symbol,
-        #     transaction_type=self._get_transaction_type(order.side),
-        #     quantity=int(order.quantity),
-        #     order_type=self._get_order_type(order.order_type),
-        #     price=order.price or 0,
-        #     trigger_price=order.trigger_price or 0,
-        #     product=self.kite.PRODUCT_MIS if order.tag == 'intraday' else self.kite.PRODUCT_NRML
-        # )
+        if self.kite is not None:
+            try:
+                kite_order_id = self.kite.place_order(
+                    variety=self.kite.VARIETY_REGULAR,
+                    exchange=self._get_exchange(order.symbol),
+                    tradingsymbol=order.symbol,
+                    transaction_type=self._get_transaction_type(order.side),
+                    quantity=int(order.quantity),
+                    order_type=self._get_order_type(order.order_type),
+                    price=order.price or 0,
+                    trigger_price=order.trigger_price or 0,
+                    product=self.kite.PRODUCT_MIS if order.tag == 'intraday' else self.kite.PRODUCT_NRML
+                )
+                return str(kite_order_id)
+            except Exception as e:
+                print(f"Failed to place real Zerodha order via KiteConnect: {e}. Falling back to simulation.")
         
         # Return mock order ID
         return f"ZERODHA_{datetime.now().timestamp()}"

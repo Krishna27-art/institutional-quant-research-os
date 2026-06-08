@@ -20,7 +20,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from scipy import stats
-from data.data_loader import NSEDataLoader
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("evaluator")

@@ -14,8 +14,8 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 
-from portfolio.allocator import PortfolioAllocator
-from risk.metrics import calculate_var, calculate_var_historical, calculate_var_evt
+from src.portfolio.engine import PortfolioAllocator
+from src.risk.metrics import calculate_var, calculate_var_historical, calculate_var_evt
 from src.data.universe_tracker import UniverseTracker
 from src.data.quality_gate import DataQualityGate
 from src.execution.cost_model import NSETransactionCostModel

@@ -25,16 +25,18 @@ yaml.SafeDumper.add_multi_representer(np.floating, lambda dumper, data: dumper.r
 yaml.SafeDumper.add_multi_representer(np.integer, lambda dumper, data: dumper.represent_int(int(data)))
 
 import os
-from alpha.manager import AlphaManager
-from data.data_loader import NSEDataLoader
-from features.feature_pipeline import FeaturePipeline, FeatureConfig
-from portfolio.allocator import PortfolioAllocator
-from regime.hmm_engine import RobustHMMRegime
-from risk.institutional_risk_engine import InstitutionalRiskEngine
+from src.alpha.manager import AlphaManager
+from src.data.data_loader import NSEDataLoader
+from market_data.feature_generation.feature_pipeline import FeaturePipeline, FeatureConfig
+from src.portfolio.engine import PortfolioAllocator
+from src.regime.detectors.hmm import RobustHMMRegime
+from src.risk.institutional_risk_engine import InstitutionalRiskEngine
 from execution.live.market_stream import NSEWebSocketStream
 from alpha.orb_zarattini import scan_symbols
 from src.data.quality_gate import get_quality_gate
-from src.alpha_factory.prediction_registry import get_prediction_registry, PredictionRecord
+from src.alpha.prediction_registry import get_prediction_registry, PredictionRecord
+from data.nse_market_calendar import get_nse_calendar
+from src.risk.sebi_algo_compliance import SEBIAlgoCompliance, Order as SEBIOrder
 
 @dataclass
 class Position:
@@ -70,10 +72,29 @@ class QuantResearchOS:
         self.risk_engine = InstitutionalRiskEngine(capital=250_000_000)
         self.data_quality_gate = get_quality_gate()
         self.prediction_registry = get_prediction_registry()
+        self.nse_calendar = get_nse_calendar()
         self.market_data = {}
         self.symbols = ["NIFTY", "BANKNIFTY", "RELIANCE", "INFY", "HDFCBANK"]
         self.current_time = datetime.now()
         self.daily_pnl = 0.0
+
+        # SEBI compliance — pre-trade regulatory checks
+        self.sebi_compliance = SEBIAlgoCompliance(broker_id="QUANT_OS")
+        self.sebi_compliance.register_client("SYSTEM", {
+            "max_position_value": 50_000_000,
+            "max_daily_orders": 10_000,
+            "max_exposure": 250_000_000,
+        })
+
+        # Startup environment validation
+        self._validate_environment()
+
+    def _validate_environment(self):
+        """Validate environment and warn about missing configurations."""
+        if not os.getenv("NSE_WEBSOCKET_URL") and not os.getenv("KITE_WEBSOCKET_URL"):
+            logger.warning("ENV CHECK: No WebSocket URL set — will run in SIMULATION mode (historical replay)")
+        if not os.getenv("KITE_API_KEY"):
+            logger.warning("ENV CHECK: No Kite API key — broker adapter will NOT place real orders")
 
     def _load_config(self, path: Path) -> dict[str, Any]:
         if not path.exists() and path.as_posix() == "config/config.yaml":
@@ -173,8 +194,19 @@ class QuantResearchOS:
 
     def _evaluate_state(self):
         """Re-evaluates regime, risk, and allocation."""
-        # CRITICAL FIX: Add comprehensive error handling
         try:
+            # 0. Market calendar gate — skip non-trading days
+            if hasattr(self.current_time, 'date'):
+                if not self.nse_calendar.is_trading_day(self.current_time.date()):
+                    logger.info(f"Not a trading day ({self.current_time.date()}). Skipping.")
+                    return {
+                        "nav": self.risk_engine.capital, "daily_pnl": 0.0,
+                        "regime": "holiday", "regime_confidence": 0.0,
+                        "risk": {"var": 0.0, "cvar": 0.0, "tail_risk": 0.0},
+                        "signals": [], "allocations": [],
+                        "updated_at": datetime.now().isoformat(),
+                    }
+
             # 1. Regime
             try:
                 regime = self.regime_manager.predict_regime(self.market_data['NIFTY']).iloc[-1]
@@ -189,7 +221,6 @@ class QuantResearchOS:
                 nifty = self.market_data.get('NIFTY', pd.DataFrame())
                 if 'close' in nifty and not nifty['close'].empty:
                     close_data = nifty['close'].values
-                    # Handle 2D arrays
                     if len(close_data.shape) == 2:
                         close_data = close_data.flatten()
                     returns = self.risk_engine.compute_returns(close_data)
@@ -229,6 +260,19 @@ class QuantResearchOS:
                         logger.warning(f"Discarding signal from demoted strategy '{strat}' due to low IC.")
                         continue
                     signals.append(sig)
+
+                # ── Regime-conditional signal weighting ──────────────────
+                regime_multiplier = 1.0
+                regime_str = str(regime).lower()
+                if regime_str in ('high_vol', '2'):
+                    regime_multiplier = 0.3
+                elif regime_str in ('sideways', '1'):
+                    regime_multiplier = 0.5
+                # else trend_up / 0 → 1.0
+
+                for sig in signals:
+                    sig['confidence'] = sig.get('confidence', 0.5) * regime_multiplier
+                    sig['regime'] = regime_str
                 
                 # Log new signals as predictions
                 for sig in signals:
@@ -263,25 +307,63 @@ class QuantResearchOS:
             except Exception as e:
                 logger.error(f"Portfolio allocation failed: {e}")
                 allocs = []
-            
-            # CRITICAL FIX: Update NAV with daily PnL
-            # Calculate PnL from allocations and update portfolio allocator NAV
-            total_pnl = 0.0
+
+            # 5. SEBI compliance pre-trade checks
+            compliant_allocs = []
             for alloc in allocs:
-                if hasattr(alloc, 'expected_return'):
-                    total_pnl += alloc.expected_return
+                try:
+                    sym = getattr(alloc, 'symbol', 'UNKNOWN')
+                    weight = getattr(alloc, 'weight', 0.0)
+                    price = current_prices.get(sym, 0)
+                    qty = int(abs(weight * self.portfolio_allocator.get_current_capital() / max(price, 1)))
+                    sebi_order = SEBIOrder(
+                        order_id=f"ORD_{datetime.now().timestamp():.0f}",
+                        symbol=sym,
+                        side="BUY" if weight > 0 else "SELL",
+                        quantity=max(qty, 1),
+                        price=price,
+                        order_type="LIMIT",
+                        client_id="SYSTEM",
+                        strategy_id=getattr(alloc, 'strategy', 'orb'),
+                        timestamp=self.current_time,
+                    )
+                    is_compliant, checks = self.sebi_compliance.pre_trade_check(sebi_order)
+                    if is_compliant:
+                        compliant_allocs.append(alloc)
+                    else:
+                        failed = [c.message for c in checks if c.status.value != 'COMPLIANT']
+                        logger.warning(f"SEBI rejected {sym}: {failed}")
+                except Exception as e:
+                    logger.error(f"SEBI check failed for allocation: {e}")
+                    compliant_allocs.append(alloc)  # fail-open for now
+            allocs = compliant_allocs
             
-            self.daily_pnl = total_pnl
+            # 6. Compute REALIZED PnL from actual price changes
+            realized_pnl = 0.0
+            for alloc in allocs:
+                sym = getattr(alloc, 'symbol', None)
+                weight = getattr(alloc, 'weight', 0.0)
+                if sym and sym in self.market_data and len(self.market_data[sym]) >= 2:
+                    try:
+                        prev_close = float(self.market_data[sym]['close'].iloc[-2])
+                        curr_close = float(self.market_data[sym]['close'].iloc[-1])
+                        if prev_close > 0:
+                            position_return = (curr_close - prev_close) / prev_close
+                            realized_pnl += weight * self.portfolio_allocator.get_current_capital() * position_return
+                    except Exception:
+                        pass
+
+            self.daily_pnl = realized_pnl
             new_nav = self.portfolio_allocator.get_current_capital() + self.daily_pnl
             self.portfolio_allocator.update_nav(new_nav)
             self.risk_engine.capital = new_nav
             
-            # CRITICAL FIX: Check circuit breaker
+            # 7. Circuit breaker on REALIZED PnL
             self.risk_engine.update_daily_pnl(self.daily_pnl)
             cb_triggered, cb_reason = self.risk_engine.check_circuit_breaker(self.daily_pnl)
             if cb_triggered:
                 logger.critical(f"Circuit breaker active: {cb_reason} - trading halted")
-                allocs = []  # Clear allocations to stop trading
+                allocs = []
             
             state = {
                 "nav": new_nav,
@@ -294,20 +376,11 @@ class QuantResearchOS:
                 "updated_at": datetime.now().isoformat(),
             }
 
-            # web.api_server not yet implemented - placeholder for WebSocket broadcasting
-            # try:
-            #     from web.api_server import publisher
-            #     loop = asyncio.get_running_loop()
-            #     loop.create_task(publisher.broadcast(state))
-            # except Exception:
-            #     pass
-
-            logger.info(f"State Update: Regime {regime} (Conf {conf:.2f}), VaR ₹{var:,.2f}, NAV ₹{new_nav:,.2f}, Daily PnL ₹{self.daily_pnl:,.2f}, Allocations {len(allocs)}")
+            logger.info(f"State Update: Regime {regime} (Conf {conf:.2f}), VaR ₹{var:,.2f}, NAV ₹{new_nav:,.2f}, Realized PnL ₹{self.daily_pnl:,.2f}, Allocations {len(allocs)}")
             return state
             
         except Exception as e:
             logger.error(f"Critical error in _evaluate_state: {e}")
-            # Return safe default state
             return {
                 "nav": self.risk_engine.capital,
                 "daily_pnl": 0.0,
@@ -336,44 +409,95 @@ class QuantResearchOS:
                 logger.info("Attempting reconnection in 5 seconds...")
                 await asyncio.sleep(5)
         else:
-            logger.warning("Neither NSE_WEBSOCKET_URL nor KITE_WEBSOCKET_URL set. Running in simulation mode.")
-            # Simulation loop
-            while True:
-                await asyncio.sleep(60)  # Check every minute
+            logger.warning("No WebSocket URL set. Running in SIMULATION mode (historical replay).")
+            # Historical replay: walk through loaded data bar-by-bar
+            # instead of generating random prices
+            max_bars = max(
+                (len(self.market_data.get(s, pd.DataFrame())) for s in self.symbols),
+                default=0,
+            )
+            if max_bars == 0:
+                logger.error("No historical data loaded for replay. Exiting.")
+                return
+
+            logger.info(f"Replaying {max_bars} historical bars...")
+            for bar_idx in range(max_bars):
+                await asyncio.sleep(0.05)  # Throttle replay
                 for sym in self.symbols:
-                    if sym in self.market_data and not self.market_data[sym].empty:
-                        last_bar = self.market_data[sym].iloc[-1].to_dict()
-                        price = last_bar['close'] * (1.0 + np.random.normal(0, 0.001))
-                        sim_bar = {
-                            "symbol": sym,
-                            "timestamp": datetime.now(),
-                            "open": price,
-                            "high": price,
-                            "low": price,
-                            "close": price,
-                            "volume": last_bar.get('volume', 100)
-                        }
-                        self.on_bar(sim_bar)
+                    df = self.market_data.get(sym, pd.DataFrame())
+                    if df.empty or bar_idx >= len(df):
+                        continue
+                    row = df.iloc[bar_idx]
+                    sim_bar = {
+                        "symbol": sym,
+                        "timestamp": row.name if isinstance(row.name, datetime) else datetime.now(),
+                        "open": float(row.get('open', 0)),
+                        "high": float(row.get('high', 0)),
+                        "low": float(row.get('low', 0)),
+                        "close": float(row.get('close', 0)),
+                        "volume": float(row.get('volume', 0)),
+                    }
+                    self.on_bar(sim_bar)
+            logger.info("Historical replay complete.")
 
     async def run_backtest(self) -> dict[str, Any]:
-        """Placeholder for backtest mode using actual logic."""
+        """Run walk-forward backtest over historical data."""
         await self.initialize()
         if not self._has_required_backtest_data():
             missing = [
-                symbol
-                for symbol in self.symbols
-                if symbol not in self.market_data or self.market_data[symbol].empty
+                s for s in self.symbols
+                if s not in self.market_data or self.market_data[s].empty
             ]
             return {
-                "status": "failed",
-                "mode": "backtest",
+                "status": "failed", "mode": "backtest",
                 "reason": "data_unavailable",
-                "message": "Backtest aborted because required OHLCV data is missing.",
+                "message": "Backtest aborted — required OHLCV data missing.",
                 "missing_symbols": missing,
             }
-        # Mock evaluation since historical data fetch is abstracted
-        state = self._evaluate_state()
-        return {"status": "success", "mode": "backtest", "state": state}
+
+        nifty = self.market_data.get("NIFTY", pd.DataFrame())
+        if nifty.empty:
+            return {"status": "failed", "mode": "backtest", "reason": "no_nifty_data"}
+
+        # Snapshot original data for point-in-time slicing
+        full_data = {sym: df.copy() for sym, df in self.market_data.items()}
+        nav_history = [self.portfolio_allocator.get_current_capital()]
+        results = []
+        warmup = min(100, len(nifty) // 2)
+
+        for i in range(warmup, len(nifty)):
+            bar_date = nifty.index[i]
+            if hasattr(bar_date, 'date') and not self.nse_calendar.is_trading_day(bar_date.date()):
+                continue
+
+            # Point-in-time slice: only data up to current bar
+            for sym in self.symbols:
+                if sym in full_data and not full_data[sym].empty:
+                    self.market_data[sym] = full_data[sym].iloc[:i + 1]
+
+            self.current_time = bar_date.to_pydatetime() if hasattr(bar_date, 'to_pydatetime') else datetime.now()
+            state = self._evaluate_state()
+            if state:
+                results.append(state)
+                nav_history.append(state.get("nav", nav_history[-1]))
+
+        # Restore original data
+        self.market_data = full_data
+
+        # Compute honest backtest metrics
+        nav_series = pd.Series(nav_history)
+        bt_returns = nav_series.pct_change().dropna()
+        sharpe = float(bt_returns.mean() / bt_returns.std() * np.sqrt(252)) if bt_returns.std() > 0 else 0.0
+        max_dd = float(((nav_series / nav_series.cummax()) - 1).min())
+
+        return {
+            "status": "success", "mode": "backtest",
+            "total_bars": len(results),
+            "final_nav": float(nav_history[-1]),
+            "total_return": float(nav_history[-1] / nav_history[0] - 1),
+            "sharpe_ratio": sharpe,
+            "max_drawdown": max_dd,
+        }
 
 def _convert_to_native(obj: Any) -> Any:
     """Recursively convert numpy types and dataclasses to Python native types for YAML/JSON serialization."""

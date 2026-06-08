@@ -5,6 +5,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import asyncio
+from contextlib import asynccontextmanager
 import random
 from datetime import datetime, timedelta
 import jwt
@@ -15,17 +16,17 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
 
 from core.market_hours import market_status as get_market_status_func
 from data.nifty50_symbols import get_nifty50_symbols
-from alpha.manager import AlphaManager
-from alpha.prediction_storage import PredictionStorage
+from src.alpha.manager import AlphaManager
+from src.alpha.prediction_storage import PredictionStorage
 from core.data_quality_engine import get_data_quality_engine, DataQualityEngine
-from portfolio.trade_logger import get_trade_logger, TradeLogger, TradeSide
+from src.portfolio.trade_logger import get_trade_logger, TradeLogger, TradeSide
 from models.model_registry import get_model_registry
 from features.feature_store import get_feature_store
 import yfinance as yf
 import numpy as np
 import pandas as pd
-from risk.institutional_risk_engine import InstitutionalRiskEngine, Position
-from regime.hmm_engine import RobustHMMRegime
+from src.risk.institutional_risk_engine import InstitutionalRiskEngine, Position
+from src.regime.detectors.hmm import RobustHMMRegime
 import logging
 
 logger = logging.getLogger("api_server")
@@ -193,8 +194,35 @@ from typing import Tuple
 
 async def fetch_history_async(symbol: str, period: str = "5d") -> Tuple[str, pd.DataFrame]:
     try:
-        ticker = yf.Ticker(f"{symbol}.NS")
+        # Try database first
+        from data.truth import get_price_history
+        # Convert period e.g. "5d" to number of days
+        days = 5
+        if "d" in period:
+            try:
+                days = int(period.replace("d", ""))
+            except:
+                pass
+        
+        hist = await asyncio.to_thread(get_price_history, symbol, days)
+        if not hist.empty:
+            # Set datetime index
+            hist = hist.copy()
+            hist.index = pd.DatetimeIndex(hist["date"])
+            # Add both capitalized and lowercase columns for compatibility
+            for col in list(hist.columns):
+                hist[col.lower()] = hist[col]
+                hist[col.capitalize()] = hist[col]
+            return symbol, hist
+            
+        # Fallback to yfinance
+        ticker = yf.Ticker(f"{symbol}.NS" if not symbol.endswith(".NS") and len(symbol) <= 10 else symbol)
         hist = await asyncio.to_thread(ticker.history, period=period)
+        if not hist.empty:
+            hist = hist.copy()
+            for col in list(hist.columns):
+                hist[col.lower()] = hist[col]
+                hist[col.capitalize()] = hist[col]
         return symbol, hist
     except Exception as e:
         logger.warning(f"Error fetching history for {symbol}: {e}")
@@ -297,18 +325,13 @@ class StatePublisher:
     def __init__(self):
         self.connections: set[WebSocket] = set()
         self.state = {
-            'nav': 250_000_000,
+            'nav': 250_000_000.0,
             'daily_pnl': 0.0,
             'positions': [],
-            'risk': {'var': 5_992_860.48, 'cvar': 5_070_411.30, 'tail_risk': 3_361_064.50},
-            'regime': 'sideways',
-            'regime_confidence': 0.50,
-            'signals': [
-                {'symbol': 'RELIANCE', 'direction': 1, 'strength': 0.92, 'confidence': 0.84},
-                {'symbol': 'HDFCBANK', 'direction': 1, 'strength': 0.88, 'confidence': 0.79},
-                {'symbol': 'INFY', 'direction': 1, 'strength': 0.83, 'confidence': 0.76},
-                {'symbol': 'ADANIENT', 'direction': -1, 'strength': -0.88, 'confidence': 0.81},
-            ],
+            'risk': {'var': 0.0, 'cvar': 0.0, 'tail_risk': 0.0},
+            'regime': 'unknown',
+            'regime_confidence': 0.0,
+            'signals': [],
             'pnl': {'daily': 0.0},
             'updated_at': None,
         }
@@ -737,7 +760,7 @@ async def get_health():
             "screener": "REAL (data/nifty50_symbols.py)",
             "signals": "REAL (alpha/manager.py)",
             "metrics": "REAL (alpha/prediction_storage.py)",
-            "indices": "HARDCODED (needs live data feed)"
+            "indices": "REAL (truth.py)"
         }
     }
 
@@ -1022,11 +1045,11 @@ async def get_theoretical_foundation_metrics():
         # Market efficiency metrics
         try:
             efficiency_tests = MarketEfficiencyTests()
-            # Get recent NIFTY data for efficiency test
-            nifty = yf.Ticker("^NSEI")
-            hist = nifty.history(period="1mo")
+            # Get recent NIFTY data for efficiency test from truth DB
+            from data.truth import get_price_history
+            hist = get_price_history("NIFTY", days=30)
             if not hist.empty:
-                prices = hist['Close'].values
+                prices = hist['close'].values
                 vr_result = efficiency_tests.variance_ratio_test(prices, q=2)
                 runs_result = efficiency_tests.runs_test(prices)
                 
@@ -1054,11 +1077,11 @@ async def get_theoretical_foundation_metrics():
             limits = LimitsToArbitrage()
             vol_regime = VolatilityRegime()
             
-            # Get current volatility from NIFTY
-            nifty = yf.Ticker("^NSEI")
-            hist = nifty.history(period="1mo")
+            # Get current volatility from NIFTY via truth DB
+            from data.truth import get_price_history
+            hist = get_price_history("NIFTY", days=30)
             if not hist.empty:
-                returns = hist['Close'].pct_change().dropna()
+                returns = hist['close'].pct_change().dropna()
                 current_vol = returns.std() * np.sqrt(252) if len(returns) > 0 else 0.0
                 regime = vol_regime.classify_regime(current_vol)
                 
@@ -1199,9 +1222,9 @@ async def publish_state(data: dict) -> None:
     """Public helper for the trading loop to push state to dashboard clients."""
     await publisher.broadcast(data)
 
-@app.on_event("startup")
-async def startup_event():
-    """Start background task to update with real data."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start background tasks to update with real data."""
     # Refresh price database on startup
     try:
         logger.info("Refreshing market truth price database...")
@@ -1228,8 +1251,25 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to fit HMM regime model on startup: {e}. Graceful fallback active.")
         
-    asyncio.create_task(update_market_data())
-    asyncio.create_task(update_prediction_outcomes())
+    m_task = asyncio.create_task(update_market_data())
+    p_task = asyncio.create_task(update_prediction_outcomes())
+    
+    yield
+    
+    # Cancel background tasks on shutdown
+    logger.info("Cancelling background tasks...")
+    m_task.cancel()
+    p_task.cancel()
+    try:
+        await m_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await p_task
+    except asyncio.CancelledError:
+        pass
+
+app.router.lifespan_context = lifespan
 
 async def update_market_data():
     """Update market data with real values from production components."""

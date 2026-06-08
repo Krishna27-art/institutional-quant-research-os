@@ -158,8 +158,8 @@ class ExecutionPipeline:
         self.post_trade_checker = PostTradeRiskChecker()
         
         # Connect PortfolioAllocator and InstitutionalRiskEngine
-        from portfolio.allocator import PortfolioAllocator
-        from risk.institutional_risk_engine import InstitutionalRiskEngine
+        from src.portfolio.engine import PortfolioAllocator
+        from src.risk.institutional_risk_engine import InstitutionalRiskEngine
         
         self.portfolio_allocator = portfolio_allocator or PortfolioAllocator()
         self.risk_engine = risk_engine or InstitutionalRiskEngine()

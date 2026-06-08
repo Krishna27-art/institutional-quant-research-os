@@ -332,7 +332,7 @@ class EnsembleRegimeDetector:
     """
     
     def __init__(self, hmm_config: dict = None, cpd_config: CPDConfig = None):
-        from regime.hmm_engine import HMMRegimeEngine
+        from research.regime.hmm_engine import HMMRegimeEngine
         
         self.hmm_engine = HMMRegimeEngine(hmm_config or {})
         self.cpd_detector = ChangePointDetector(cpd_config)

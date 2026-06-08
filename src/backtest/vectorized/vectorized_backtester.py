@@ -60,8 +60,9 @@ class VectorizedBacktester:
         else:
             positions = signals
         
-        # Compute returns (shift to avoid lookahead)
-        returns = daily_data['close'].pct_change().shift(-1)
+        # Compute returns — no shift needed; positions.shift(1) below
+        # ensures signals are lagged by one bar to avoid lookahead.
+        returns = daily_data['close'].pct_change()
         
         # Compute PnL (vectorized)
         pnl = (positions.shift(1) * returns).sum(axis=1) if isinstance(positions, pd.DataFrame) else positions.shift(1) * returns
@@ -149,7 +150,7 @@ class VectorizedBacktester:
         # Compute returns
         returns_dict = {}
         for symbol, data in aligned_data.items():
-            returns_dict[symbol] = data['close'].pct_change().shift(-1)
+            returns_dict[symbol] = data['close'].pct_change()
         
         returns_df = pd.DataFrame(returns_dict)
         

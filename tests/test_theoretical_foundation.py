@@ -482,7 +482,7 @@ class TestIntegration:
     def test_alpha_manager_integration(self):
         """Test integration with alpha manager."""
         try:
-            from research.alpha.manager import AlphaManager
+            from src.alpha.manager import AlphaManager
             
             manager = AlphaManager()
             # Test that foundation modules are available
@@ -495,7 +495,7 @@ class TestIntegration:
     def test_risk_engine_integration(self):
         """Test integration with risk engine."""
         try:
-            from risk.engine import RiskEngine
+            from src.risk.institutional_risk_engine import InstitutionalRiskEngine as RiskEngine
             
             engine = RiskEngine(capital=1000000)
             # Test that foundation modules are available
@@ -507,7 +507,7 @@ class TestIntegration:
     def test_portfolio_allocator_integration(self):
         """Test integration with portfolio allocator."""
         try:
-            from portfolio.allocator import PortfolioAllocator
+            from src.portfolio.engine import PortfolioAllocator
             
             allocator = PortfolioAllocator()
             # Test that foundation modules are available

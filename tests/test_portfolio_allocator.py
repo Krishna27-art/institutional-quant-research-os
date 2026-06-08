@@ -5,7 +5,7 @@ Tests position sizing strategies to ensure non-zero allocations.
 
 import pytest
 import numpy as np
-from portfolio.allocator import PortfolioAllocator, PositionSpec
+from src.portfolio.engine import PortfolioAllocator, PositionSpec
 
 
 def test_fixed_fractional():

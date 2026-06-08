@@ -46,8 +46,14 @@ class FeatureComputer:
                 return self.research_features.compute(feature_name, data)
         elif category.value == "breadth":
             return self.breadth_features.compute(feature_name, data)
+        elif category.value == "research":
+            return self.research_features.compute(feature_name, data)
         else:
-            raise NotImplementedError(f"Category {category} not yet implemented")
+            # Fall back to research features for uncategorized features
+            try:
+                return self.research_features.compute(feature_name, data)
+            except ValueError:
+                raise NotImplementedError(f"Category {category} not yet implemented")
     
     def compute_all(self, data: pd.DataFrame, feature_names: Optional[List[str]] = None) -> pd.DataFrame:
         """Compute multiple features"""

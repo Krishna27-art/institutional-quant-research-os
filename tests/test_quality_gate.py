@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from src.data.quality_gate import DataQualityGate, get_quality_gate
-from src.alpha_factory.prediction_registry import PredictionRegistry, PredictionRecord, get_prediction_registry
+from src.alpha.prediction_registry import PredictionRegistry, PredictionRecord, get_prediction_registry
 
 
 def test_data_quality_gate_empty():
@@ -147,7 +147,7 @@ def test_prediction_registry_ic_and_demotion(tmp_path):
     registry = PredictionRegistry(db_path=str(db_file), min_ic=0.10)
     
     # We must patch MIN_PREDICTIONS_FOR_IC to test with fewer predictions
-    from src.alpha_factory import prediction_registry
+    from src.alpha import prediction_registry
     original_min = prediction_registry.MIN_PREDICTIONS_FOR_IC
     prediction_registry.MIN_PREDICTIONS_FOR_IC = 5
     

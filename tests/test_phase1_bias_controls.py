@@ -1,14 +1,14 @@
 import numpy as np
 import pandas as pd
 
-from alpha.orb_zarattini import ORBBacktesterZarattini, ORBConfig
-from alpha.put_call_carry_shin import PCPCarryBacktesterShin, PCPCarryConfig
-from alpha.vwap_trend_zarattini import VWAPTrendBacktesterZarattini, VWAPConfig
+from research.alpha.orb_zarattini import ORBBacktesterZarattini, ORBConfig
+from research.alpha.put_call_carry_shin import PCPCarryBacktesterShin, PCPCarryConfig
+from research.alpha.vwap_trend_zarattini import VWAPTrendBacktesterZarattini, VWAPConfig
 from backtesting.backtest_orb import BacktestConfig as ORBPathConfig
 from backtesting.backtest_orb import ORBBacktester
 from backtesting.backtest_pcp import PCPBacktester, PCPBacktestConfig
 from features.feature_pipeline import FeatureConfig, FeaturePipeline
-from regime.hmm_engine import HMMRegimeEngine, Regime
+from research.regime.hmm_engine import HMMRegimeEngine, Regime
 
 
 def _ohlcv(index: pd.DatetimeIndex) -> pd.DataFrame:

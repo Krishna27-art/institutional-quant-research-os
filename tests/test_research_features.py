@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.feature_store.compute import FeatureComputer, ResearchFeatures
+from src.features.compute import FeatureComputer, ResearchFeatures
 
 
 def _ohlcv(close: np.ndarray) -> pd.DataFrame:

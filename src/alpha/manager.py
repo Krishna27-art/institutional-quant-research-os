@@ -10,8 +10,8 @@ from datetime import datetime
 
 import pandas as pd
 
-from alpha.orb_zarattini import scan_symbols
-from alpha.prediction_storage import PredictionStorage, Prediction
+from research.alpha.orb_zarattini import scan_symbols
+from .prediction_storage import PredictionStorage, Prediction
 from .prediction_registry import get_prediction_registry, PredictionRecord
 
 logger = logging.getLogger(__name__)
@@ -39,12 +39,7 @@ class AlphaManager:
             return []
 
         # Run scanner
-        try:
-            import alpha.manager
-            scan_func = getattr(alpha.manager, "scan_symbols", scan_symbols)
-        except ImportError:
-            scan_func = scan_symbols
-        signals = scan_func({symbol: market_data}, market_data.index[-1])
+        signals = scan_symbols({symbol: market_data}, market_data.index[-1])
         
         # Log to prediction registry
         for signal in signals:

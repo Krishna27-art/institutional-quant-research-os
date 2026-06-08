@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from src.feature_store.compute import ResearchFeatures
+from src.features.compute import ResearchFeatures
 
 # Import feature store
 try:
@@ -33,6 +33,9 @@ class FeatureConfig:
     bb_std: float = 2.0
     expected_session_minutes: int = 390
     enable_research_features: bool = True
+    enable_leakage_detection: bool = True
+    enable_psi_detection: bool = True
+    enable_future_info_check: bool = True
 
 
 class FeaturePipeline:

@@ -8,7 +8,7 @@ from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
-from src.feature_store.compute import ResearchFeatures
+from src.features.compute import ResearchFeatures
 
 
 @dataclass(slots=True)

@@ -36,7 +36,7 @@ class Prediction:
 class PredictionStorage:
     """Database storage for predictions with evaluation tracking."""
     
-    def __init__(self, db_path: str = "data/predictions.db"):
+    def __init__(self, db_path: str = "data/prediction_registry.db"):
         self.db_path = db_path
         self._init_db()
     
@@ -57,17 +57,20 @@ class PredictionStorage:
             CREATE TABLE IF NOT EXISTS predictions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol TEXT NOT NULL,
+                strategy TEXT NOT NULL,
                 direction TEXT NOT NULL,
+                predicted_return REAL DEFAULT 0.0,
                 confidence REAL NOT NULL,
-                target_price REAL NOT NULL,
-                stop_loss REAL NOT NULL,
                 entry_price REAL NOT NULL,
                 timestamp TEXT NOT NULL,
-                strategy TEXT NOT NULL,
-                realized_return REAL,
-                is_correct INTEGER,
+                horizon_minutes INTEGER NOT NULL DEFAULT 390,
+                target_price REAL DEFAULT 0.0,
+                stop_loss REAL DEFAULT 0.0,
                 exit_price REAL,
+                realized_return REAL,
                 exit_timestamp TEXT,
+                is_correct INTEGER,
+                ic_contribution REAL,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -162,7 +165,12 @@ class PredictionStorage:
         conn = self._get_connection()
         cursor = conn.cursor()
         
-        query = "SELECT * FROM predictions"
+        query = """
+            SELECT id, symbol, direction, confidence, target_price, stop_loss,
+                   entry_price, timestamp, strategy, realized_return, is_correct,
+                   exit_price, exit_timestamp
+            FROM predictions
+        """
         params = []
         
         if symbol or strategy:

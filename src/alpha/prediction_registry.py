@@ -112,14 +112,17 @@ class PredictionRegistry:
                     symbol TEXT NOT NULL,
                     strategy TEXT NOT NULL,
                     direction TEXT NOT NULL,
-                    predicted_return REAL NOT NULL,
+                    predicted_return REAL DEFAULT 0.0,
                     confidence REAL NOT NULL,
                     entry_price REAL NOT NULL,
                     timestamp TEXT NOT NULL,
                     horizon_minutes INTEGER NOT NULL DEFAULT 390,
+                    target_price REAL DEFAULT 0.0,
+                    stop_loss REAL DEFAULT 0.0,
                     exit_price REAL,
                     realized_return REAL,
                     exit_timestamp TEXT,
+                    is_correct INTEGER,
                     ic_contribution REAL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )

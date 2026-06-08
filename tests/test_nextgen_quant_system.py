@@ -2,14 +2,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.alpha_factory.alphas import (
+from src.alpha.alphas import (
     BiLevelChaoticFusionGCN,
     GameStockAlpha,
     InvestorType,
     classify_investor,
     correlation_graph,
 )
-from src.alpha_factory.evolution import MadEvolveAlphaEngine
+from src.alpha.evolution import MadEvolveAlphaEngine
 from src.execution.signal_adaptive import SignalAdaptiveExecutor
 from src.risk import (
     FIGARCHVolatility,

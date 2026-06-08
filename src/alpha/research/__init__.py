@@ -11,7 +11,7 @@ from .gcn_alpha import (
     classify_investor,
     correlation_graph,
 )
-from .llm_evolver import (
+from ..evolution import (
     AlphaCandidate,
     SafeAlphaEvaluator,
     MadEvolveAlphaEngine,

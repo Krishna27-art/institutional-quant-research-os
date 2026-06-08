@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from research.regime.hmm_engine import RobustHMMRegime
+from src.regime.detectors.hmm import RobustHMMRegime
 from src.shared.db.connection_manager import ConnectionManager, DatabaseConfig
 from dashboard.api.api_server import fetch_history_async
 

@@ -10,8 +10,8 @@ import pandas as pd
 import yfinance as yf
 import pytest
 
-from alpha.prediction_storage import PredictionStorage, Prediction
-from alpha.manager import AlphaManager
+from src.alpha.prediction_storage import PredictionStorage, Prediction
+from src.alpha.manager import AlphaManager
 
 
 @pytest.fixture
@@ -117,7 +117,7 @@ def test_alpha_manager_stop_loss_key_fix():
     market_data = pd.DataFrame({"close": [3000.0]}, index=[datetime.now()])
     
     # Mock scan_symbols output representing ORB signal (uses 'stop' key)
-    with patch("alpha.manager.scan_symbols") as mock_scan:
+    with patch("src.alpha.manager.scan_symbols") as mock_scan:
         mock_scan.return_value = [
             {
                 "symbol": "RELIANCE",

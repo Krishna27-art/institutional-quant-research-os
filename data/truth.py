@@ -36,7 +36,32 @@ NSE_UNIVERSE = {
     "INDIAVIX":    "^INDIAVIX",
 }
 
-DB_PATH = "data/market_truth.db"
+import os
+from pathlib import Path
+
+DB_PATH = str(Path(__file__).resolve().parent / "market_truth.db")
+
+def _ensure_initialized():
+    db_exists = os.path.exists(DB_PATH)
+    is_empty = True
+    if db_exists:
+        try:
+            con = sqlite3.connect(DB_PATH)
+            res = con.execute("SELECT count(*) FROM daily_prices").fetchone()
+            if res and res[0] > 0:
+                is_empty = False
+            con.close()
+        except Exception:
+            pass
+    if not db_exists or is_empty:
+        try:
+            init_db()
+            refresh_prices(period="1y")
+        except Exception as e:
+            log.error("Failed to auto-initialize truth DB: %s", e)
+
+_ensure_initialized()
+
 
 
 def init_db():

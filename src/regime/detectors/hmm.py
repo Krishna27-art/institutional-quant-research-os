@@ -111,7 +111,10 @@ class HMMDetector:
     def fit(self, df: pd.DataFrame):
         X = self._prepare_features(df)
         if len(X) < 100:
-            raise ValueError(f"Need at least 100 observations, got {len(X)}")
+            warnings.warn(f"Need at least 100 observations, got {len(X)}. Falling back to rule-based classification.")
+            self.model = None
+            self.is_fitted = True
+            return self
         
         n_states = 3 if len(X) < 500 else self.n_states
         X_scaled = self._transform_features(X, is_fit=True)

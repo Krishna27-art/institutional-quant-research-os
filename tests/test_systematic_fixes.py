@@ -1,13 +1,13 @@
 import numpy as np
 import pandas as pd
 
-from alpha.orb_zarattini import scan_symbols
-from features.indicators import compute_atr, parkinson_volatility
-from live.market_stream import NSEWebSocketStream
+from research.alpha.orb_zarattini import scan_symbols
+from market_data.feature_generation.indicators import compute_atr, parkinson_volatility
+from execution.live.market_stream import NSEWebSocketStream
 from src.data.data_loader import NSEDataLoader
-from portfolio.allocator import PortfolioAllocator
-from risk.institutional_risk_engine import InstitutionalRiskEngine as FullRiskEngine
-from risk.risk_engine import InstitutionalRiskEngine
+from src.portfolio.engine import PortfolioAllocator
+from src.risk.institutional_risk_engine import InstitutionalRiskEngine as FullRiskEngine
+from src.risk.institutional_risk_engine import InstitutionalRiskEngine
 from main import QuantResearchOS
 
 

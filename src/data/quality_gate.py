@@ -195,8 +195,13 @@ class DataQualityGate:
                     f"rule5_overnight_gap: {n_gap} bars with >{self.max_overnight_gap_pct:.0%} gap"
                 )
                 violation_counts["overnight_gap"] = int(n_gap)
-                # Don't drop — just flag. Corporate actions cause legitimate gaps.
-                # TODO: integrate corporate_actions table to whitelist known splits/dividends
+                # Don't drop — corporate actions (splits, bonuses, dividends)
+                # cause legitimate overnight gaps. Log for manual review.
+                gap_dates = df.index[gap_mask].tolist()
+                logger.info(
+                    f"Rule5 overnight gaps for {symbol} on {gap_dates[:5]}... "
+                    f"(may be corporate actions — not rejecting data)"
+                )
 
         # ── Final assessment ────────────────────────────────────────
         rows_out = len(df)

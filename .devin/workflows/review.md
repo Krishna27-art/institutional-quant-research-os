@@ -20,3 +20,5 @@ Make sure to:
 2. If you find any pre-existing bugs in the code, you should also report those since it's important for us to maintain general code quality for the user.
 3. Do NOT report issues that are speculative or low-confidence. All your conclusions should be based on a complete understanding of the codebase.
 4. Remember that if you were given a specific git commit, it may not be checked out and local code states may be different.
+5. Never assume financial data shape or schema.
+6. Always inspect dataframe columns, dimensions, dtypes, and missing values before calculations.

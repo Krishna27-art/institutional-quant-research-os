@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from regime.hmm_engine import HMMRegimeEngine, RegimeState
+from research.regime.hmm_engine import HMMRegimeEngine, RegimeState
 
 logger = logging.getLogger(__name__)
 

@@ -8,14 +8,14 @@ import pandas as pd
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
-from risk.limits import (
+from .limits import (
     calculate_position_limits as limits_calculate_position_limits,
     should_stop_trading_high_vix as limits_should_stop_trading_high_vix,
     check_trailing_drawdown_limit as limits_check_trailing_drawdown_limit,
     check_circuit_breaker as limits_check_circuit_breaker,
     calculate_stop_loss as limits_calculate_stop_loss
 )
-from risk.metrics import (
+from .metrics import (
     calculate_portfolio_returns as metrics_calculate_portfolio_returns,
     calculate_moments as metrics_calculate_moments,
     calculate_var as metrics_calculate_var,
@@ -28,7 +28,7 @@ from risk.metrics import (
     calculate_portfolio_heat as metrics_calculate_portfolio_heat,
     calculate_tail_risk as metrics_calculate_tail_risk
 )
-from risk.compliance import SEBIAlgoCompliance
+from .sebi_algo_compliance import SEBIAlgoCompliance
 
 
 @dataclass

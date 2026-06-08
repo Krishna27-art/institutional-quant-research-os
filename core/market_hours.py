@@ -109,6 +109,11 @@ def market_status() -> dict:
 def _next_open_str() -> str:
     now = now_ist()
     d   = now.date()
+    # If today is a trading day and we are before market open, next open is today
+    if d.weekday() < 5 and d not in NSE_HOLIDAYS:
+        if now.time() < MARKET_OPEN:
+            return "Today at 09:15 IST"
+            
     # Walk forward until we find a trading day
     for i in range(1, 10):
         import datetime as dt
