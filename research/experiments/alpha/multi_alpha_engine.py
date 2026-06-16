@@ -136,72 +136,22 @@ class MultiAlphaEngine:
         self.last_rebalance_date = None
         
     def _build_alpha_registry(self) -> Dict[str, AlphaCategory]:
-        """Build registry of 20 alphas from blueprint."""
+        """Build registry of actually available alphas."""
         return {
-            # Momentum (5 alphas)
-            'time_series_momentum_12_1': AlphaCategory.MOMENTUM,
-            'dual_momentum': AlphaCategory.MOMENTUM,
-            'sector_momentum': AlphaCategory.MOMENTUM,
-            'residual_momentum': AlphaCategory.MOMENTUM,
-            'volatility_managed_momentum': AlphaCategory.MOMENTUM,
-            
-            # Mean Reversion (5 alphas)
-            'pairs_trading_cointegration': AlphaCategory.MEAN_REVERSION,
-            'etf_arbitrage': AlphaCategory.MEAN_REVERSION,
-            'orb_opening_range': AlphaCategory.MEAN_REVERSION,
-            'vwap_reversion': AlphaCategory.MEAN_REVERSION,
-            'internal_bar_strength': AlphaCategory.MEAN_REVERSION,
-            
-            # Volatility (3 alphas)
-            'volatility_risk_premium': AlphaCategory.VOLATILITY,
-            'vix_futures_basis': AlphaCategory.VOLATILITY,
-            'volatility_targeting': AlphaCategory.VOLATILITY,
-            
-            # Options (3 alphas)
-            'put_call_parity_carry': AlphaCategory.OPTIONS,
-            'skew_risk_reversal': AlphaCategory.OPTIONS,
-            'gamma_scalping': AlphaCategory.OPTIONS,
-            
-            # Microstructure (2 alphas)
-            'optimal_quoting': AlphaCategory.MICROSTRUCTURE,
-            'market_making': AlphaCategory.MICROSTRUCTURE,
-            
-            # Factor (2 alphas)
-            'low_volatility_anomaly': AlphaCategory.FACTOR,
-            'value_factor': AlphaCategory.FACTOR
+            'orb_zarattini': AlphaCategory.MEAN_REVERSION,
+            'vwap_trend_zarattini': AlphaCategory.MOMENTUM
         }
     
     def _build_regime_weights(self) -> Dict[RegimeType, Dict[str, float]]:
         """Build regime-specific weights from blueprint."""
         return {
-            RegimeType.BULL_TREND: {
-                'momentum': 0.50, 'mean_reversion': 0.05, 'volatility': 0.15,
-                'options': 0.10, 'microstructure': 0.10, 'factor': 0.10
-            },
-            RegimeType.BEAR_TREND: {
-                'momentum': 0.40, 'mean_reversion': 0.10, 'volatility': 0.20,
-                'options': 0.15, 'microstructure': 0.05, 'factor': 0.10
-            },
-            RegimeType.SIDEWAYS: {
-                'momentum': 0.10, 'mean_reversion': 0.50, 'volatility': 0.15,
-                'options': 0.15, 'microstructure': 0.05, 'factor': 0.05
-            },
-            RegimeType.HIGH_VOL: {
-                'momentum': 0.20, 'mean_reversion': 0.10, 'volatility': 0.40,
-                'options': 0.20, 'microstructure': 0.05, 'factor': 0.05
-            },
-            RegimeType.LOW_VOL: {
-                'momentum': 0.30, 'mean_reversion': 0.20, 'volatility': 0.10,
-                'options': 0.10, 'microstructure': 0.20, 'factor': 0.10
-            },
-            RegimeType.PANIC: {
-                'momentum': 0.00, 'mean_reversion': 0.20, 'volatility': 0.30,
-                'options': 0.30, 'microstructure': 0.10, 'factor': 0.10
-            },
-            RegimeType.EUPHORIA: {
-                'momentum': 0.20, 'mean_reversion': 0.20, 'volatility': 0.10,
-                'options': 0.10, 'microstructure': 0.20, 'factor': 0.20
-            }
+            RegimeType.BULL_TREND: { 'momentum': 0.80, 'mean_reversion': 0.20 },
+            RegimeType.BEAR_TREND: { 'momentum': 0.80, 'mean_reversion': 0.20 },
+            RegimeType.SIDEWAYS: { 'momentum': 0.20, 'mean_reversion': 0.80 },
+            RegimeType.HIGH_VOL: { 'momentum': 0.30, 'mean_reversion': 0.70 },
+            RegimeType.LOW_VOL: { 'momentum': 0.60, 'mean_reversion': 0.40 },
+            RegimeType.PANIC: { 'momentum': 0.10, 'mean_reversion': 0.90 },
+            RegimeType.EUPHORIA: { 'momentum': 0.50, 'mean_reversion': 0.50 }
         }
     
     def _should_rebalance(self, current_date: datetime) -> bool:

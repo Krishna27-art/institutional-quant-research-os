@@ -14,8 +14,30 @@ from pathlib import Path
 import json
 import hashlib
 from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import sharpe_ratio, max_drawdown
 import lightgbm as lgb
+
+def sharpe_ratio(returns: np.ndarray, risk_free_rate: float = 0.0) -> float:
+    """Calculate annualized Sharpe ratio from daily returns."""
+    if len(returns) == 0:
+        return 0.0
+    returns_arr = np.array(returns)
+    excess_returns = returns_arr - risk_free_rate / 252
+    std_dev = np.std(excess_returns)
+    if std_dev == 0:
+        return 0.0
+    return np.mean(excess_returns) / std_dev * np.sqrt(252)
+
+def max_drawdown(returns: np.ndarray) -> float:
+    """Calculate maximum drawdown from returns."""
+    if len(returns) == 0:
+        return 0.0
+    returns_arr = np.array(returns)
+    cum_returns = (1 + returns_arr).cumprod()
+    peak = np.maximum.accumulate(cum_returns)
+    # Avoid division by zero
+    peak = np.where(peak == 0, 1e-8, peak)
+    drawdown = (cum_returns - peak) / peak
+    return float(abs(np.min(drawdown)))
 
 from time_machine_simulator import TimeMachineSimulator, DataType
 

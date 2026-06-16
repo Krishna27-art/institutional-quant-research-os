@@ -1,0 +1,3 @@
+trade_id,symbol,side,quantity,entry_price,exit_price,entry_time,exit_time,status,pnl,commission,slippage_bps
+t1,AAPL,buy,100,150.0,155.0,2026-06-14T12:01:20.072443,,pending,,0.0,0.0
+t2,AAPL,sell,100,160.0,155.0,2026-06-14T12:01:20.076093,,pending,,0.0,0.0

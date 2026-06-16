@@ -91,6 +91,52 @@ class LimitsToArbitrageEngine:
         self.volume_spike_threshold = 3.0  # 3x normal volume
         self.spread_vacuum_threshold = 0.01  # 1% spread
         self.volume_vacuum_threshold = 0.1  # 10% of average volume
+        
+        # Connect to prediction registry for IC validation
+        try:
+            import sys
+            from pathlib import Path
+            # Resolve root directory of repository and production path
+            repo_root = Path(__file__).resolve().parent.parent
+            prod_path = str(repo_root / "production")
+            if prod_path not in sys.path:
+                sys.path.append(prod_path)
+            from src.alpha.prediction_registry import get_prediction_registry
+            self.registry = get_prediction_registry()
+        except ImportError:
+            self.registry = None
+
+    def compute_engine_ic(self, alpha_id: str = "LimitsToArbitrage_Panic") -> Dict[str, float]:
+        """
+        Compute and log Spearman rank IC and Sharpe for predictions registered by this engine.
+        """
+        if self.registry is None:
+            import logging
+            logging.getLogger(__name__).warning("Prediction registry not connected. Cannot compute IC.")
+            return {"mean_ic": 0.0, "rolling_ic": 0.0, "sharpe": 0.0}
+            
+        try:
+            report = self.registry.get_strategy_report(alpha_id)
+            import logging
+            logging.getLogger(__name__).info(
+                f"[{alpha_id}] Performance Report: "
+                f"Total Preds: {report.total_predictions}, "
+                f"Mean IC: {report.mean_ic:.4f}, "
+                f"Rolling IC: {report.rolling_ic:.4f}, "
+                f"Realized Sharpe: {report.sharpe:.4f}, "
+                f"Lifecycle: {report.lifecycle_stage}"
+            )
+            return {
+                "mean_ic": report.mean_ic,
+                "rolling_ic": report.rolling_ic,
+                "sharpe": report.sharpe,
+                "total_predictions": report.total_predictions,
+                "lifecycle_stage": report.lifecycle_stage
+            }
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Error computing IC for {alpha_id}: {e}")
+            return {"mean_ic": 0.0, "rolling_ic": 0.0, "sharpe": 0.0}
     
     def detect_arbitrage_constraints(
         self,
@@ -222,6 +268,18 @@ class LimitsToArbitrageEngine:
                 self.panic_events[symbol] = []
             self.panic_events[symbol].append(panic_event)
             
+            # Register with prediction registry
+            if self.registry is not None:
+                self.registry.register_prediction(
+                    strategy="LimitsToArbitrage_Panic",
+                    symbol=symbol,
+                    timestamp=timestamp,
+                    predicted_return=-panic_event.signal * 0.02,
+                    confidence=panic_event.severity,
+                    horizon_minutes=60,
+                    current_price=price
+                )
+            
             return panic_event
         
         return None
@@ -288,6 +346,18 @@ class LimitsToArbitrageEngine:
                 self.panic_events[symbol] = []
             self.panic_events[symbol].append(forced_event)
             
+            # Register with prediction registry
+            if self.registry is not None:
+                self.registry.register_prediction(
+                    strategy="LimitsToArbitrage_ForcedLiq",
+                    symbol=symbol,
+                    timestamp=timestamp,
+                    predicted_return=-forced_event.signal * 0.03,
+                    confidence=forced_event.severity,
+                    horizon_minutes=60,
+                    current_price=price
+                )
+            
             return forced_event
         
         return None
@@ -353,6 +423,18 @@ class LimitsToArbitrageEngine:
             if symbol not in self.panic_events:
                 self.panic_events[symbol] = []
             self.panic_events[symbol].append(fomo_event)
+            
+            # Register with prediction registry
+            if self.registry is not None:
+                self.registry.register_prediction(
+                    strategy="LimitsToArbitrage_FOMO",
+                    symbol=symbol,
+                    timestamp=timestamp,
+                    predicted_return=-fomo_event.signal * 0.02,
+                    confidence=fomo_event.severity,
+                    horizon_minutes=60,
+                    current_price=price
+                )
             
             return fomo_event
         

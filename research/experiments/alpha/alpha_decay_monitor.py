@@ -107,12 +107,18 @@ class AlphaDecayMonitor:
         Returns:
             Dictionary with current metrics and decay status
         """
-        # Calculate IC
-        ic = predictions.corr(actuals)
+        # Calculate IC (Spearman rank correlation)
+        ic = predictions.corr(actuals, method='spearman')
         ic = ic if not np.isnan(ic) else 0.0
         
-        # Calculate Sharpe
-        sharpe = predictions.mean() / (predictions.std() + 1e-8) * np.sqrt(252)
+        # Calculate Sharpe on cost-adjusted realized returns
+        pos = np.sign(predictions)
+        gross_returns = pos * actuals
+        # 2.5 bps transaction fee per leg (5 bps round-trip on direction change)
+        pos_change = pos.diff().fillna(0).abs()
+        costs = 0.00025 * pos_change
+        net_returns = gross_returns - costs
+        sharpe = net_returns.mean() / (net_returns.std() + 1e-8) * np.sqrt(252)
         sharpe = sharpe if not np.isnan(sharpe) else 0.0
         
         # Calculate turnover

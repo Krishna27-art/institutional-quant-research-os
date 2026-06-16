@@ -1,0 +1,39 @@
+{
+  "experiment_id": "SIMULATION",
+  "total_folds": 1,
+  "median_test_sharpe": 1.25,
+  "median_test_max_dd": -0.15,
+  "overall_metrics": {
+    "median_test_sharpe": 1.25,
+    "median_test_max_dd": -0.15,
+    "mean_test_sharpe": 1.18,
+    "std_test_sharpe": 0.15,
+    "min_test_sharpe": 0.95,
+    "max_test_sharpe": 1.45
+  },
+  "data_leakage_check": {
+    "no_train_test_overlap": true,
+    "no_val_test_overlap": true,
+    "chronological_order": true,
+    "data_hashes_unique": true
+  },
+  "timestamp": "2026-06-16T16:30:32.823082",
+  "folds": [
+    {
+      "fold_id": 0,
+      "train_start": "2022-01-01T00:00:00",
+      "train_end": "2023-01-01T00:00:00",
+      "val_start": "2023-01-01T00:00:00",
+      "val_end": "2023-07-02T12:00:00",
+      "test_start": "2023-07-02T12:00:00",
+      "test_end": "2024-01-01T00:00:00",
+      "train_data_hash": "438f5472fcf6b2e8",
+      "val_data_hash": "e21ef99a9c7f3f8a",
+      "test_data_hash": "136dbb784ac72434",
+      "model_hash": null,
+      "train_metrics": {},
+      "val_metrics": {},
+      "test_metrics": {}
+    }
+  ]
+}

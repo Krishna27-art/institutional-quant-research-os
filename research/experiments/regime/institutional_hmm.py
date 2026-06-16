@@ -86,11 +86,11 @@ def prepare_regime_features(price_data: pd.DataFrame, lookback: int = 252) -> Tu
     feature_cols = ['ret', 'vol_20d', 'vol_ratio', 'ma200_dist', 'ma50_dist', 'skew_20d', 'kurt_20d']
     features = df[feature_cols].values
     
-    # Target is next day's return (for regime detection, we align features to t-1)
-    target_returns = df['ret'].shift(-1).dropna().values
+    # Target is current day's return (for regime detection, we use known returns)
+    target_returns = df['ret'].values
     
-    # Align features with target (drop last row of features since no target)
-    features = features[:-1]
+    # Features and targets are already aligned
+    # features = features
     
     return features, target_returns
 
